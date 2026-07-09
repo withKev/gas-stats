@@ -93,6 +93,15 @@
     overscroll-behavior-y:none;
     -webkit-font-smoothing:antialiased;
   }
+  /* iOS home-screen app only. `black-translucent` + `viewport-fit=cover` makes
+     iOS shift the document UP by the status-bar inset so content can sit behind
+     the status bar. A document that is exactly 100% tall then falls short of the
+     screen bottom by that same amount, and iOS paints the leftover band black
+     (in both light and dark). Growing the root box by the top inset fills it.
+     Scoped to standalone so Safari and desktop are untouched. */
+  @media all and (display-mode: standalone){
+    html{ min-height:calc(100% + env(safe-area-inset-top, 0px)); }
+  }
   /* Ambient color wash — this is what the frosted glass surfaces blur against */
   body::before{
     content:''; position:fixed; inset:-20%; z-index:0; pointer-events:none;
