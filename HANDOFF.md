@@ -223,6 +223,17 @@ heavier lift (validation of dates, grades, numerics) than JSON import.
    One wrong number and iOS silently shows a white flash instead. Regenerate
    with `gen_splash.py`; verify every `href` in `index.html` resolves to a real
    file on disk.
+9. **Do not delete the `@media (display-mode: standalone)` rule in
+   `styles.css`.** `apple-mobile-web-app-status-bar-style: black-translucent`
+   plus `viewport-fit=cover` makes iOS shift the whole document UP by the
+   status-bar inset (~47px) so content can sit behind the clock. A document that
+   is exactly `height:100%` then falls short of the screen bottom by that amount
+   and **iOS paints the leftover band black** — under the tab bar, in both light
+   and dark, home-screen app only, never in Safari. The rule
+   `html{ min-height: calc(100% + env(safe-area-inset-top,0px)) }` fills it.
+   It looks like a no-op and is not. If the black band ever returns, the escape
+   hatch is to drop `black-translucent` (use `default`), which kills the whole
+   bug class at the cost of the edge-to-edge status bar.
 
 ## Tooling gotchas (cost real time; don't rediscover)
 
@@ -243,6 +254,19 @@ heavier lift (validation of dates, grades, numerics) than JSON import.
   repos. Use the PAT for API reads too.
 - **wrangler v4 requires Node ≥ 22.** Pinning Node 20 in CI fails at the deploy
   step only, after build+verify pass — looks like a Cloudflare problem, isn't.
+- Chrome cannot emulate `display-mode: standalone` — not via
+  `page.emulateMediaFeatures()` (throws "Unsupported media feature") and not via
+  raw CDP `Emulation.setEmulatedMedia`. The standalone code path is only
+  testable on a real device. Don't claim you verified it.
+- `document.styleSheets[].cssRules` throws a SecurityError for `<link>`ed CSS on
+  a `file://` page, so the folder build reports **zero** stylesheets. Inspect
+  `dist/fuel-tracker.html` (CSS inlined) when you need to read the CSSOM.
+- Forcing `html{min-height:calc(100% + 47px)}` in desktop Chrome makes the root
+  scrollable by 47px. **This is an artifact.** On real iOS standalone the
+  document is already shifted up by that inset, so the extra height is consumed
+  and no scroll appears. Verified on device. Don't "fix" the phantom scroll.
+- `scrollHeight > clientHeight` does not tell you whether a user can scroll —
+  `overflow:hidden` leaves that true and still allows programmatic `scrollTop`.
 
 ## Deployment (what to tell the user)
 
