@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>Fuel</title>
+
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Fuel">
+<meta name="theme-color" content="#FF9500">
+<link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png">
+<link rel="manifest" href="manifest.json">
+
+<!-- iOS launch splash screens (light + dark), iPhone 13 mini (2021) through the
+     current 17 / Air / 17e lineup. iOS requires an exact device-width/height/
+     pixel-ratio match per image -- there is no way to scale a single image. -->
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1080x2340-l.png" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: light)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1080x2340-d.png" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: dark)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1170x2532-l.png" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: light)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1170x2532-d.png" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: dark)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1284x2778-l.png" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: light)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1284x2778-d.png" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: dark)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1179x2556-l.png" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: light)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1179x2556-d.png" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: dark)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1290x2796-l.png" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: light)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1290x2796-d.png" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: dark)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1206x2622-l.png" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: light)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1206x2622-d.png" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: dark)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1320x2868-l.png" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: light)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1320x2868-d.png" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: dark)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1260x2736-l.png" media="(device-width: 420px) and (device-height: 912px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: light)">
+<link rel="apple-touch-startup-image" href="icons/splash/splash-1260x2736-d.png" media="(device-width: 420px) and (device-height: 912px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: dark)">
+
+<script>
+/* Apply the saved appearance before the page paints, to avoid a flash. */
+(function(){
+  try{
+    var s = JSON.parse(localStorage.getItem('fuelTrackerSettings_v1') || '{}');
+    document.documentElement.setAttribute('data-theme', s.theme || 'auto');
+  }catch(e){ document.documentElement.setAttribute('data-theme', 'auto'); }
+})();
+</script>
+
+<script src="lib/chart.umd.min.js"></script>
+
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <div class="navbar" id="navbar">
+    <div class="navbar-title" id="navbar-title">Dashboard</div>
+  </div>
+
+  <main id="main"></main>
+
+  <button class="fab" id="fab" aria-label="Add fill-up"></button>
+
+  <nav class="tabbar">
+    <button class="tab-btn active" data-tab="dashboard"></button>
+    <button class="tab-btn" data-tab="stats"></button>
+    <button class="tab-btn" data-tab="settings"></button>
+  </nav>
+</div>
+
+<div class="modal-backdrop" id="backdrop"></div>
+
+<!-- Add/Edit Sheet -->
+<div class="sheet" id="edit-sheet">
+  <div class="sheet-header">
+    <button id="cancel-btn">Cancel</button>
+    <h2 id="sheet-title">New Fill-Up</h2>
+    <button class="save" id="save-btn" disabled>Save</button>
+  </div>
+
+  <div class="field-group">
+    <div class="field">
+      <label>Date</label>
+      <input type="datetime-local" id="f-date">
+    </div>
+    <div class="field">
+      <label>Station</label>
+      <input type="text" id="f-station" placeholder="e.g. Shell">
+    </div>
+    <div class="field">
+      <label>Location</label>
+      <input type="text" id="f-location" placeholder="Tap to fill">
+      <button class="field-icon-btn" id="locate-btn" aria-label="Use current location"></button>
+    </div>
+    <div class="field">
+      <label>Fuel Grade</label>
+      <select id="f-grade">
+        <option>Regular</option>
+        <option>Mid-Grade</option>
+        <option>Premium</option>
+        <option>Diesel</option>
+        <option>E85</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Full Tank</label>
+      <input type="checkbox" class="toggle" id="f-full" checked>
+    </div>
+  </div>
+
+  <div class="field-group">
+    <div class="field">
+      <label>Liters</label>
+      <input type="number" inputmode="decimal" id="f-liters" placeholder="0.0">
+    </div>
+    <div class="field">
+      <label>Price / Liter</label>
+      <input type="number" inputmode="decimal" id="f-price" placeholder="0.00">
+    </div>
+    <div class="field">
+      <label>Total Cost</label>
+      <input type="number" inputmode="decimal" id="f-total" placeholder="0.00">
+    </div>
+  </div>
+
+  <div class="field-group">
+    <div class="field">
+      <label>Odometer</label>
+      <input type="number" inputmode="decimal" id="f-odo" placeholder="optional">
+    </div>
+  </div>
+  <div class="hint">Log the odometer consistently on full tanks to unlock fuel-economy stats.</div>
+
+  <div class="field-group">
+    <div class="field" style="align-items:flex-start;">
+      <label>Notes</label>
+      <textarea id="f-notes" rows="3" placeholder=""></textarea>
+    </div>
+  </div>
+
+  <button class="btn-block" id="delete-btn" style="display:none;">Delete Fill-Up</button>
+</div>
+
+<!-- Persistent hidden file input for import (Settings is now a tab) -->
+<input type="file" id="import-file" class="file-input" accept=".json,application/json,text/plain">
+
+<div id="toast"></div>
+
+<!-- Custom confirm dialog (native confirm() is unreliable in home-screen PWAs) -->
+<div class="dialog-backdrop" id="dialog-backdrop">
+  <div class="dialog" role="alertdialog" aria-modal="true">
+    <div class="dialog-body">
+      <h3 id="dialog-title">Are you sure?</h3>
+      <p id="dialog-message"></p>
+    </div>
+    <div class="dialog-actions">
+      <button class="dialog-btn" id="dialog-cancel">Cancel</button>
+      <button class="dialog-btn primary" id="dialog-confirm">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

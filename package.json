@@ -1,0 +1,14 @@
+{
+  "name": "gas-stats",
+  "private": true,
+  "description": "Fuel Tracker -- build/verify tooling. The shipped app itself is plain HTML/CSS/JS with no dependencies; this package.json exists only for the verify.js smoke test.",
+  "scripts": {
+    "build": "python3 build.py",
+    "verify": "node verify.js",
+    "ci": "npm run build && npm run verify"
+  },
+  "devDependencies": {
+    "puppeteer": "^25.3.0",
+    "wrangler": "^4.107.1"
+  }
+}

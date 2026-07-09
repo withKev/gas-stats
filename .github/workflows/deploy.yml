@@ -1,0 +1,45 @@
+name: Build, Verify, Deploy
+
+# Runs on every push to every branch. Cloudflare Pages itself decides
+# preview vs production based on which branch is configured as the
+# "Production branch" in the gas-stats Pages project settings (should be
+# `main`) -- every other branch gets its own preview URL automatically.
+on:
+  push:
+    branches:
+      - '**'
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-verify-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (src/ -> dist/)
+        run: python3 build.py
+
+      - name: Verify (headless-Chrome smoke test)
+        run: node verify.js
+
+      - name: Deploy to Cloudflare Pages
+        if: success()
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler pages deploy dist/webapp --project-name=gas-stats --branch="${{ github.ref_name }}"
