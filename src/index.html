@@ -77,12 +77,13 @@
   <div class="field-group">
     <div class="field">
       <label>Date</label>
-      <input type="datetime-local" id="f-date">
+      <input type="date" id="f-date">
     </div>
     <div class="field">
-      <label>Station</label>
-      <input type="text" id="f-station" placeholder="e.g. Shell">
+      <label for="f-station">Station</label>
+      <input type="text" id="f-station" placeholder="e.g. Shell" autocomplete="off" autocapitalize="words">
     </div>
+    <div class="suggest-row" id="station-suggest" hidden></div>
     <div class="field">
       <label>Location</label>
       <input type="text" id="f-location" placeholder="Tap to fill">
@@ -128,9 +129,9 @@
   <div class="hint">Log the odometer consistently on full tanks to unlock fuel-economy stats.</div>
 
   <div class="field-group">
-    <div class="field" style="align-items:flex-start;">
-      <label>Notes</label>
-      <textarea id="f-notes" rows="3" placeholder=""></textarea>
+    <div class="field field-stacked">
+      <label for="f-notes">Notes</label>
+      <textarea id="f-notes" rows="3" placeholder="Optional"></textarea>
     </div>
   </div>
 

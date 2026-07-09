@@ -243,6 +243,10 @@
   }
   .fab:active{ transform:scale(0.9); }
   .fab.hidden{ opacity:0; pointer-events:none; transform:scale(0.6); }
+  /* Scrolling down tucks the button away so it stops covering the last row;
+     scrolling up brings it back. Kept separate from .hidden (Settings tab) so
+     the two reasons for hiding can't fight each other. */
+  .fab.scrolled-away{ opacity:0; pointer-events:none; transform:translateY(90px) scale(0.85); }
 
   /* ---------- Dashboard hero card ---------- */
   .hero{
@@ -332,6 +336,41 @@
     text-align:right; font-family:inherit; -webkit-appearance:none; min-width:0;
   }
   .field textarea{ text-align:left; resize:none; }
+  /* WebKit ignores `text-align` on a <select>, so the value sticks to the left
+     on iOS while looking correct in Chrome. `direction:rtl` is the workaround
+     that WebKit does honour; options are flipped back to ltr so the native
+     picker still reads normally. Applies to every select, not just Fuel Grade —
+     they were all affected, it's just most obvious on short values. */
+  .field select{
+    direction:rtl;
+    text-align:right;
+    text-align-last:right;
+  }
+  .field select option{ direction:ltr; }
+  /* Tappable station suggestions. A horizontal strip of chips rather than a
+     native <datalist>, whose iOS rendering is inconsistent and untestable here. */
+  .suggest-row{
+    display:flex; gap:8px; padding:10px 14px;
+    overflow-x:auto; -webkit-overflow-scrolling:touch;
+    border-bottom:0.5px solid var(--sep);
+    scrollbar-width:none;
+  }
+  .suggest-row::-webkit-scrollbar{ display:none; }
+  .suggest-row[hidden]{ display:none; }
+  .suggest-chip{
+    flex-shrink:0; border:none; cursor:pointer;
+    padding:7px 13px; border-radius:999px;
+    font-size:14px; font-family:inherit; color:var(--text);
+    background:var(--chip, rgba(120,120,128,0.14));
+    white-space:nowrap; min-height:34px;
+    transition:transform .12s var(--spring), opacity .15s;
+  }
+  .suggest-chip:active{ transform:scale(0.94); opacity:0.7; }
+  /* Notes sits on its own rows: the label above, the textarea full-width below.
+     Without this the flex row puts the first line of text beside "Notes". */
+  .field-stacked{ flex-direction:column; align-items:stretch; gap:6px; }
+  .field-stacked label{ width:auto; color:var(--text-tertiary); font-size:13px; }
+  .field-stacked textarea{ flex:none; width:100%; text-align:left; line-height:1.4; }
   .field input::placeholder{ color:var(--text-tertiary); }
   .field input:focus, .field select:focus, .field textarea:focus{ outline:none; }
   /* Native dropdown popups don't inherit page colors — set them explicitly so

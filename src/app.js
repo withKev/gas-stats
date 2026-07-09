@@ -37,6 +37,22 @@
   let data = load(STORE_KEY, []);
   let settings = load(SETTINGS_KEY, { currency:'USD', distanceUnit:'km', theme:'auto' });
 
+  // ---------- One-time migrations ----------
+  // Requested by the user: their older entries used "Costco Gas"; the station
+  // they actually want listed is "Costco Gasoline". Guarded by a flag so it
+  // runs exactly once and never fights a later manual rename. Exact match only
+  // -- we don't want to touch a station that merely contains the string.
+  (function migrateStationNames(){
+    const FLAG = 'fuelTrackerMigration_costcoRename';
+    if(localStorage.getItem(FLAG)) return;
+    let changed = 0;
+    for(const r of data){
+      if((r.station || '').trim() === 'Costco Gas'){ r.station = 'Costco Gasoline'; changed++; }
+    }
+    if(changed) localStorage.setItem(STORE_KEY, JSON.stringify(data));
+    localStorage.setItem(FLAG, '1');
+  })();
+
   function load(key, fallback){
     try{ const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; }
     catch(e){ return fallback; }
@@ -127,6 +143,8 @@
     if(!fab) return;
     // Hide the add button on the Settings tab; show it on content tabs.
     fab.classList.toggle('hidden', activeTab === 'settings');
+    // Tab switches reset main.scrollTop to 0, so clear any scroll-away state.
+    resetFabScroll();
   }
 
   function badge(color, iconName, size=32, iconSize=17){
@@ -403,9 +421,68 @@
   }
   backdrop.addEventListener('click', closeSheets);
 
+  // The date field is date-only. `new Date('2026-07-09')` parses as UTC
+  // midnight, which in a negative-offset timezone renders as the day BEFORE.
+  // So we always format from local getters and re-parse into local noon.
   function toLocalInputValue(d){
     const pad = n=>String(n).padStart(2,'0');
-    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  }
+
+  // 'YYYY-MM-DD' -> Date at LOCAL noon. Noon (not midnight) keeps the calendar
+  // day stable across DST shifts in both directions.
+  // ---------- Station suggestions ----------
+  // Seeded with the stations the user visits most; everything else is learned
+  // from their own history, so typing a new name once makes it a suggestion
+  // from then on. Nothing extra is persisted -- the list is derived from `data`.
+  const DEFAULT_STATIONS = ['Hillview Town Pantry', 'Costco Gasoline'];
+
+  function knownStations(){
+    const seen = new Map(); // lowercased name -> {name, count, last}
+    for(const r of data){
+      const name = (r.station || '').trim();
+      if(!name) continue;
+      const key = name.toLowerCase();
+      const t = new Date(r.date).getTime() || 0;
+      const e = seen.get(key);
+      if(e){ e.count++; if(t > e.last){ e.last = t; e.name = name; } }
+      else seen.set(key, { name, count:1, last:t });
+    }
+    for(const name of DEFAULT_STATIONS){
+      const key = name.toLowerCase();
+      if(!seen.has(key)) seen.set(key, { name, count:0, last:0 });
+    }
+    // Most-used first, then most-recent. Stable and predictable.
+    return [...seen.values()]
+      .sort((a,b)=> b.count - a.count || b.last - a.last)
+      .map(e=>e.name);
+  }
+
+  function renderStationSuggest(){
+    const row = document.getElementById('station-suggest');
+    const input = document.getElementById('f-station');
+    if(!row || !input) return;
+    const typed = input.value.trim().toLowerCase();
+    const matches = knownStations()
+      .filter(n=> !typed || (n.toLowerCase().includes(typed) && n.toLowerCase() !== typed))
+      .slice(0, 6);
+
+    if(!matches.length){ row.hidden = true; row.innerHTML = ''; return; }
+    row.hidden = false;
+    row.innerHTML = matches
+      .map(n=>`<button type="button" class="suggest-chip">${escapeHtml(n)}</button>`).join('');
+    row.querySelectorAll('.suggest-chip').forEach((btn, i)=>{
+      btn.addEventListener('click', ()=>{
+        input.value = matches[i];
+        renderStationSuggest();
+      });
+    });
+  }
+
+  function fromLocalInputValue(s){
+    const [y, m, d] = String(s).split('-').map(Number);
+    if(!y || !m || !d) return new Date();
+    return new Date(y, m - 1, d, 12, 0, 0, 0);
   }
 
   function openAdd(){
@@ -422,6 +499,7 @@
     document.getElementById('f-total').value = '';
     document.getElementById('f-odo').value = '';
     document.getElementById('f-notes').value = '';
+    renderStationSuggest();
     validateForm();
     openSheet(editSheet);
   }
@@ -442,12 +520,49 @@
     document.getElementById('f-total').value = item.totalCost || '';
     document.getElementById('f-odo').value = item.odometer ?? '';
     document.getElementById('f-notes').value = item.notes || '';
+    renderStationSuggest();
     validateForm();
     openSheet(editSheet);
   }
 
   document.getElementById('fab').addEventListener('click', openAdd);
   document.getElementById('cancel-btn').addEventListener('click', closeSheets);
+
+  // Live-filter the station chips as the user types.
+  document.getElementById('f-station').addEventListener('input', renderStationSuggest);
+
+  // Tuck the FAB away while scrolling down so it stops covering the last row,
+  // and bring it back on any upward scroll. rAF-throttled: the scroll event
+  // fires far more often than the screen refreshes.
+  let resetFabScroll = ()=>{};
+  (function fabScrollBehavior(){
+    const fab = document.getElementById('fab');
+    const scroller = document.getElementById('main');
+    if(!fab || !scroller) return;
+    const THRESHOLD = 6;   // ignore sub-pixel jitter and rubber-banding
+    let lastY = 0, ticking = false;
+
+    function update(){
+      const y = scroller.scrollTop;
+      if(y <= 8){
+        fab.classList.remove('scrolled-away');       // always visible at the top
+      } else if(y > lastY + THRESHOLD){
+        fab.classList.add('scrolled-away');          // scrolling down
+      } else if(y < lastY - THRESHOLD){
+        fab.classList.remove('scrolled-away');       // scrolling up
+      }
+      lastY = y;
+      ticking = false;
+    }
+
+    scroller.addEventListener('scroll', ()=>{
+      if(!ticking){ ticking = true; requestAnimationFrame(update); }
+    }, { passive:true });
+
+    // A tab switch re-renders `main` and resets its scroll to 0; don't leave
+    // the button stranded off-screen.
+    resetFabScroll = ()=>{ lastY = 0; fab.classList.remove('scrolled-away'); };
+  })();
 
   const litersEl = document.getElementById('f-liters');
   const priceEl = document.getElementById('f-price');
@@ -476,7 +591,7 @@
     const odoRaw = document.getElementById('f-odo').value;
     const record = {
       id: editingId || uid(),
-      date: new Date(document.getElementById('f-date').value).toISOString(),
+      date: fromLocalInputValue(document.getElementById('f-date').value).toISOString(),
       station: document.getElementById('f-station').value.trim(),
       location: document.getElementById('f-location').value.trim(),
       grade: document.getElementById('f-grade').value,
