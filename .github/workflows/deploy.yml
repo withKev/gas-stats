@@ -42,4 +42,24 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx wrangler pages deploy dist/webapp --project-name=gas-stats --branch="${{ github.ref_name }}"
+        run: |
+          # Presence checks only -- never echo the values themselves.
+          [ -n "$CLOUDFLARE_API_TOKEN" ]  || echo "::error::CLOUDFLARE_API_TOKEN secret is missing or empty"
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || echo "::error::CLOUDFLARE_ACCOUNT_ID secret is missing or empty"
+
+          set +e
+          npx wrangler pages deploy dist/webapp \
+            --project-name=gas-stats \
+            --branch="${{ github.ref_name }}" > /tmp/wrangler.log 2>&1
+          code=$?
+          set -e
+
+          cat /tmp/wrangler.log
+
+          if [ "$code" -ne 0 ]; then
+            # Re-emit wrangler's error as an annotation. GitHub stores raw logs on a
+            # host that's awkward to reach via the API; annotations are retrievable.
+            MSG=$(tail -c 1200 /tmp/wrangler.log | tr '\n\r' '  ' | sed 's/%/%25/g')
+            echo "::error::wrangler exit $code :: $MSG"
+            exit "$code"
+          fi
