@@ -331,11 +331,25 @@
   .field{ display:flex; align-items:center; padding:11px 14px; border-bottom:0.5px solid var(--sep); gap:10px; min-height:44px; }
   .field:last-child{ border-bottom:none; }
   .field label{ font-size:16px; width:112px; flex-shrink:0; }
-  .field input[type=text], .field input[type=number], .field input[type=datetime-local], .field select, .field textarea{
+  .field input[type=text], .field input[type=number], .field input[type=date], .field select, .field textarea{
     flex:1; border:none; background:none; font-size:16px; color:var(--text);
     text-align:right; font-family:inherit; -webkit-appearance:none; min-width:0;
   }
   .field textarea{ text-align:left; resize:none; }
+  /* A date input renders its value inside shadow DOM that ignores text-align,
+     and both WebKit and Chrome draw their own picker chrome. Strip it so the
+     row reads like every other field: plain right-aligned text. */
+  .field input[type=date]{
+    -webkit-appearance:none; appearance:none;
+    background:none; border:none; padding:0;
+    min-height:22px; line-height:22px;
+  }
+  .field input[type=date]::-webkit-date-and-time-value{
+    text-align:right; margin:0; padding:0;
+  }
+  .field input[type=date]::-webkit-datetime-edit{ text-align:right; }
+  .field input[type=date]::-webkit-calendar-picker-indicator{ display:none; }
+  .field input[type=date]::-webkit-inner-spin-button{ display:none; }
   /* WebKit ignores `text-align` on a <select>, so the value sticks to the left
      on iOS while looking correct in Chrome. `direction:rtl` is the workaround
      that WebKit does honour; options are flipped back to ltr so the native
