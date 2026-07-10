@@ -426,14 +426,15 @@
     gap:12px; padding:4px 16px 12px;
   }
   .title-row .large-title{ padding:0; min-width:0; flex-shrink:1; }
-  /* Vehicle switcher: no container, muted grey text with a small chevron, so it
-     reads as metadata beside the title rather than a competing button. Padding
-     (not a background) keeps the tap target comfortable. */
+  /* Vehicle switcher: no container, name in the primary text colour so it reads
+     as a peer of the title (white in dark mode, near-black in light -- a literal
+     white would disappear on the light background). Chevron stays muted.
+     Padding, not a background, keeps the tap target comfortable. */
   .vehicle-chip{
     display:flex; align-items:center; gap:4px; flex-shrink:0;
     max-width:48%; min-height:40px; padding:8px 0 8px 10px;
     background:none; border:none;
-    color:var(--text-tertiary);
+    color:var(--text);
     font-family:inherit; font-size:16px; font-weight:560;
   }
   .vehicle-chip:active{ opacity:0.5; }
