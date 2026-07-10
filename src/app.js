@@ -198,33 +198,36 @@
     return `<div class="badge" style="width:${size}px;height:${size}px;background:${color};">${icon(iconName, iconSize, 2)}</div>`;
   }
 
-  // The large title *is* the vehicle switcher on Dashboard and Stats. Saves a
-  // row of chrome, and the tab bar already says which tab you're on.
-  function vehicleTitleHtml(){
+  // Option A: the tab keeps its title; the vehicle switcher rides at the right
+  // end of the same row, so it costs no extra vertical space.
+  function titleRowHtml(label){
     const v = activeVehicle();
-    if(!v) return `<div class="large-title">Dashboard</div>`;
-    return `<button class="large-title vehicle-title" id="vehicle-bar" aria-label="Switch vehicle">
-        <span class="vehicle-title-name">${escapeHtml(v.name)}</span>
-        <span class="vehicle-title-chevron">${icon('chevron',22,3)}</span>
-      </button>`;
+    if(!v) return `<div class="large-title">${escapeHtml(label)}</div>`;
+    return `<div class="title-row">
+        <div class="large-title">${escapeHtml(label)}</div>
+        <button class="vehicle-chip" id="vehicle-bar" aria-label="Switch vehicle">
+          <span class="vehicle-chip-name">${escapeHtml(v.name)}</span>
+          <span class="vehicle-chip-chevron">${icon('chevron',14,2.6)}</span>
+        </button>
+      </div>`;
   }
   function wireVehicleBar(){
     const bar = document.getElementById('vehicle-bar');
     if(bar) bar.addEventListener('click', openVehicleSheet);
   }
 
-  // The collapsed navbar title mirrors whatever the large title says.
+  // The collapsed navbar title shows the tab name, matching the large title.
   function updateNavbarTitle(){
     const el = document.getElementById('navbar-title');
     if(!el) return;
-    if(activeTab === 'settings') el.textContent = 'Settings';
-    else el.textContent = (activeVehicle() || {}).name || 'Dashboard';
+    const def = TAB_DEFS.find(t => t.id === activeTab);
+    el.textContent = def ? def.label : 'Dashboard';
   }
 
   function renderDashboard(){
     const data = activeFills();   // scoped: everything below is this vehicle only
     const all = sortedDesc();
-    let html = vehicleTitleHtml();
+    let html = titleRowHtml('Dashboard');
 
     if(all.length === 0){
       html += `
@@ -430,7 +433,7 @@
 
   function renderStats(){
     const data = activeFills();   // scoped: everything below is this vehicle only
-    let html = vehicleTitleHtml();
+    let html = titleRowHtml('Stats');
     if(data.length === 0){
       html += `<div class="empty">${badge('var(--blue)','chart',56,26)}<div class="title">No Data Yet</div><div class="body">Log some fill-ups to see your stats.</div></div>`;
       main.innerHTML = html;
