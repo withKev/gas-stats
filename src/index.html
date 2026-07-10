@@ -138,6 +138,20 @@
   <button class="btn-block" id="delete-btn" style="display:none;">Delete Fill-Up</button>
 </div>
 
+<div class="sheet" id="vehicle-sheet">
+  <div class="sheet-header">
+    <button id="vehicle-done">Done</button>
+    <h2>Vehicles</h2>
+    <button class="save" id="vehicle-add-btn">Add</button>
+  </div>
+
+  <div class="field-group" id="vehicle-list"></div>
+  <div class="hint">Tap a vehicle to switch. Fill-ups, stats, and fuel economy are tracked separately for each one.</div>
+
+  <button class="btn-block neutral" id="vehicle-rename-btn">Rename Current Vehicle</button>
+  <button class="btn-block" id="vehicle-delete-btn">Delete Current Vehicle</button>
+</div>
+
 <!-- Persistent hidden file input for import (Settings is now a tab) -->
 <input type="file" id="import-file" class="file-input" accept=".json,application/json,text/plain">
 
@@ -149,6 +163,7 @@
     <div class="dialog-body">
       <h3 id="dialog-title">Are you sure?</h3>
       <p id="dialog-message"></p>
+      <input type="text" id="dialog-input" class="dialog-input" hidden>
     </div>
     <div class="dialog-actions">
       <button class="dialog-btn" id="dialog-cancel">Cancel</button>

@@ -415,6 +415,35 @@
     box-shadow:0 0.5px 0 var(--glass-highlight) inset;
   }
   .btn-block:active{ background:var(--fill-tertiary); }
+  .btn-block:disabled{ color:var(--text-tertiary); opacity:0.6; }
+  /* .btn-block is red by default (it only ever meant "delete"). */
+  .btn-block.neutral{ color:var(--blue); }
+
+  /* Vehicle switcher, sits directly under the large title. */
+  .vehicle-bar{
+    display:flex; align-items:center; gap:8px;
+    margin:0 16px 14px; padding:9px 12px;
+    border-radius:14px; border:0.5px solid var(--glass-border);
+    background:var(--glass-strong); color:var(--text);
+    font-size:15px; font-weight:590; font-family:inherit;
+    min-height:44px; max-width:calc(100% - 32px);
+  }
+  .vehicle-bar:active{ background:var(--fill-tertiary); }
+  .vehicle-bar-icon{ display:flex; color:var(--orange); flex-shrink:0; }
+  .vehicle-bar-name{ flex:1; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .vehicle-bar-chevron{ display:flex; color:var(--text-tertiary); flex-shrink:0; transform:rotate(90deg); }
+
+  .vehicle-row{
+    display:flex; align-items:center; gap:10px; width:100%;
+    padding:11px 14px; min-height:44px;
+    background:none; border:none; border-bottom:0.5px solid var(--sep);
+    font-size:16px; font-family:inherit; color:var(--text); text-align:left;
+  }
+  .vehicle-row:last-child{ border-bottom:none; }
+  .vehicle-row:active{ background:var(--fill-tertiary); }
+  .vehicle-row-name{ flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .vehicle-row-count{ color:var(--text-tertiary); font-size:14px; flex-shrink:0; }
+  .vehicle-row-check{ display:flex; color:var(--orange); width:20px; flex-shrink:0; }
   .hint{ font-size:13px; color:var(--text-tertiary); padding:2px 16px 16px; line-height:1.4; }
 
   #toast{
@@ -447,6 +476,14 @@
   }
   .dialog-backdrop.open .dialog{ transform:scale(1); }
   .dialog-body{ padding:20px 20px 16px; text-align:center; }
+  .dialog-input{
+    width:100%; margin-top:12px; padding:10px 12px;
+    font-size:16px;  /* 16px or iOS zooms the page on focus */
+    font-family:inherit; color:var(--text);
+    background:var(--fill-tertiary); border:0.5px solid var(--glass-border);
+    border-radius:10px; text-align:center; -webkit-appearance:none;
+  }
+  .dialog-input[hidden]{ display:none; }
   .dialog-body h3{ margin:0 0 6px; font-size:17px; font-weight:600; }
   .dialog-body p{ margin:0; font-size:14px; color:var(--text-secondary); line-height:1.4; }
   .dialog-actions{ display:flex; border-top:0.5px solid var(--sep); }

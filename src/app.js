@@ -1,6 +1,7 @@
 (function(){
   const STORE_KEY = 'fuelTrackerData_v1';
   const SETTINGS_KEY = 'fuelTrackerSettings_v1';
+  const VEHICLES_KEY = 'fuelTrackerVehicles_v1';
 
   // ---------- Icon system (monoline, currentColor) ----------
   function icon(name, size=20, sw=2){
@@ -18,6 +19,7 @@
       drop: `<path d="M12 3s6.5 6.6 6.5 11.2A6.5 6.5 0 0 1 5.5 14.2C5.5 9.6 12 3 12 3z"/>`,
       gauge: `<path d="M4.5 17a8.5 8.5 0 1 1 15 0"/><path d="M12 12.5 15 9"/><circle cx="12" cy="12.5" r="1.1" fill="currentColor" stroke="none"/>`,
       chevron: `<path d="M9 6l6 6-6 6"/>`,
+      check: `<path d="M20 6 9 17l-5-5"/>`,
       up: `<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 11l3-3 3 3"/><path d="M12 8v7"/>`,
       down: `<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 12l3 3 3-3"/><path d="M12 15V8"/>`,
       trash: `<path d="M4 7h16"/><path d="M9 7V4.5A1.5 1.5 0 0 1 10.5 3h3A1.5 1.5 0 0 1 15 4.5V7"/><path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13"/><path d="M10 11v6"/><path d="M14 11v6"/>`,
@@ -34,8 +36,24 @@
     'E85':       {color:'var(--green)',  icon:'leaf'},
   };
 
-  let data = load(STORE_KEY, []);
+  let allFills = load(STORE_KEY, []);
   let settings = load(SETTINGS_KEY, { currency:'USD', distanceUnit:'km', theme:'auto' });
+  let vehicles = load(VEHICLES_KEY, []);
+
+  // Fill-ups belong to exactly one vehicle. `allFills` is the persisted source
+  // of truth; render code works from activeFills(). Never mix the two: reads
+  // scope to the active vehicle, writes always target allFills.
+  function activeFills(){
+    return allFills.filter(f => f.vehicleId === settings.activeVehicleId);
+  }
+  function activeVehicle(){
+    return vehicles.find(v => v.id === settings.activeVehicleId) || vehicles[0] || null;
+  }
+  function vehicleName(id){
+    const v = vehicles.find(x => x.id === id);
+    return v ? v.name : 'Unknown Vehicle';
+  }
+  function newId(prefix){ return prefix + Math.random().toString(36).slice(2,10) + Date.now().toString(36); }
 
   // ---------- One-time migrations ----------
   // Requested by the user: their older entries used "Costco Gas"; the station
@@ -46,19 +64,43 @@
     const FLAG = 'fuelTrackerMigration_costcoRename';
     if(localStorage.getItem(FLAG)) return;
     let changed = 0;
-    for(const r of data){
+    for(const r of allFills){
       if((r.station || '').trim() === 'Costco Gas'){ r.station = 'Costco Gasoline'; changed++; }
     }
-    if(changed) localStorage.setItem(STORE_KEY, JSON.stringify(data));
+    if(changed) localStorage.setItem(STORE_KEY, JSON.stringify(allFills));
     localStorage.setItem(FLAG, '1');
   })();
+
+  // Every fill-up predating multi-vehicle support belongs to a single car.
+  // Create one, adopt the orphans, and make it active. Idempotent: it only
+  // acts on vehicles-less state, so it is safe on every load and after an
+  // import of an old backup.
+  function ensureVehicles(){
+    let dirty = false;
+    if(vehicles.length === 0){
+      vehicles = [{ id: newId('v_'), name: 'My Car' }];
+      saveVehicles();
+      dirty = true;
+    }
+    const known = new Set(vehicles.map(v=>v.id));
+    for(const f of allFills){
+      if(!f.vehicleId || !known.has(f.vehicleId)){ f.vehicleId = vehicles[0].id; dirty = true; }
+    }
+    if(!settings.activeVehicleId || !known.has(settings.activeVehicleId)){
+      settings.activeVehicleId = vehicles[0].id;
+      saveSettings();
+    }
+    if(dirty) save();
+  }
+  ensureVehicles();
 
   function load(key, fallback){
     try{ const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; }
     catch(e){ return fallback; }
   }
-  function save(){ localStorage.setItem(STORE_KEY, JSON.stringify(data)); }
+  function save(){ localStorage.setItem(STORE_KEY, JSON.stringify(allFills)); }
   function saveSettings(){ localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }
+  function saveVehicles(){ localStorage.setItem(VEHICLES_KEY, JSON.stringify(vehicles)); }
   function uid(){ return 'f_' + Date.now() + '_' + Math.random().toString(36).slice(2,8); }
 
   function fmtMoney(n){
@@ -69,13 +111,17 @@
   function monthKey(d){ return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'); }
   function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-  function sortedDesc(){ return [...data].sort((a,b)=> new Date(b.date) - new Date(a.date)); }
+  function sortedDesc(){ return activeFills().sort((a,b)=> new Date(b.date) - new Date(a.date)); }
 
   function computeEconomy(){
     // Walk fill-ups in odometer order. Consumption between two full tanks =
     // all fuel added since the last full tank (including partials and the
     // current full tank) divided by the distance between them.
-    const all = [...data]
+    //
+    // CRITICAL: only ever one vehicle's fill-ups. Odometers from different
+    // cars interleave (45,000 km next to 12,000 km) and would pair up into
+    // meaningless distances -- no error, just a wrong number.
+    const all = activeFills()
       .filter(d=> d.odometer != null && d.odometer !== '' && !isNaN(parseFloat(d.odometer)))
       .sort((a,b)=> parseFloat(a.odometer) - parseFloat(b.odometer));
     let totalDist = 0, totalLiters = 0, segLiters = 0, lastFullOdo = null;
@@ -135,6 +181,7 @@
     if(activeTab === 'stats') renderStats();
     else if(activeTab === 'settings') renderSettings();
     else renderDashboard();
+    wireVehicleBar();   // after innerHTML, and covers the empty-state early returns
     updateFabVisibility();
   }
 
@@ -151,9 +198,25 @@
     return `<div class="badge" style="width:${size}px;height:${size}px;background:${color};">${icon(iconName, iconSize, 2)}</div>`;
   }
 
+  // The switcher that sits under the large title on Dashboard and Stats.
+  function vehicleBarHtml(){
+    const v = activeVehicle();
+    if(!v) return '';
+    return `<button class="vehicle-bar" id="vehicle-bar">
+        <span class="vehicle-bar-icon">${icon('gauge',17,2)}</span>
+        <span class="vehicle-bar-name">${escapeHtml(v.name)}</span>
+        <span class="vehicle-bar-chevron">${icon('chevron',16,2.4)}</span>
+      </button>`;
+  }
+  function wireVehicleBar(){
+    const bar = document.getElementById('vehicle-bar');
+    if(bar) bar.addEventListener('click', openVehicleSheet);
+  }
+
   function renderDashboard(){
+    const data = activeFills();   // scoped: everything below is this vehicle only
     const all = sortedDesc();
-    let html = `<div class="large-title">Dashboard</div>`;
+    let html = `<div class="large-title">Dashboard</div>` + vehicleBarHtml();
 
     if(all.length === 0){
       html += `
@@ -358,7 +421,8 @@
   }
 
   function renderStats(){
-    let html = `<div class="large-title">Stats</div>`;
+    const data = activeFills();   // scoped: everything below is this vehicle only
+    let html = `<div class="large-title">Stats</div>` + vehicleBarHtml();
     if(data.length === 0){
       html += `<div class="empty">${badge('var(--blue)','chart',56,26)}<div class="title">No Data Yet</div><div class="body">Log some fill-ups to see your stats.</div></div>`;
       main.innerHTML = html;
@@ -412,14 +476,99 @@
   // ---------- Edit Sheet ----------
   const backdrop = document.getElementById('backdrop');
   const editSheet = document.getElementById('edit-sheet');
+  const vehicleSheet = document.getElementById('vehicle-sheet');
   let editingId = null;
 
   function openSheet(sheet){ backdrop.classList.add('open'); sheet.classList.add('open'); }
   function closeSheets(){
     backdrop.classList.remove('open');
     editSheet.classList.remove('open');
+    vehicleSheet.classList.remove('open');
   }
   backdrop.addEventListener('click', closeSheets);
+
+  // ---------- Vehicles ----------
+  function fillCount(vehicleId){ return allFills.filter(f=>f.vehicleId===vehicleId).length; }
+
+  function renderVehicleList(){
+    const list = document.getElementById('vehicle-list');
+    list.innerHTML = vehicles.map(v=>{
+      const n = fillCount(v.id);
+      const active = v.id === settings.activeVehicleId;
+      return `<button class="vehicle-row" data-id="${v.id}">
+          <span class="vehicle-row-check">${active ? icon('check',18,2.6) : ''}</span>
+          <span class="vehicle-row-name">${escapeHtml(v.name)}</span>
+          <span class="vehicle-row-count">${n} fill-up${n===1?'':'s'}</span>
+        </button>`;
+    }).join('');
+    list.querySelectorAll('.vehicle-row').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        settings.activeVehicleId = btn.dataset.id;
+        saveSettings();
+        closeSheets();
+        render();
+        showToast(vehicleName(settings.activeVehicleId));
+      });
+    });
+    // Deleting the last vehicle would leave new fill-ups with nowhere to go.
+    document.getElementById('vehicle-delete-btn').disabled = vehicles.length <= 1;
+  }
+
+  function openVehicleSheet(){
+    renderVehicleList();
+    openSheet(vehicleSheet);
+  }
+
+  async function addVehicle(){
+    const name = await confirmDialog('Give the vehicle a name.', {
+      title:'Add Vehicle', confirmText:'Add', input:true, placeholder:'e.g. Mazda 3',
+    });
+    if(!name) return;
+    const v = { id: newId('v_'), name };
+    vehicles.push(v);
+    settings.activeVehicleId = v.id;    // switch straight to it
+    saveVehicles(); saveSettings();
+    closeSheets();
+    render();
+    showToast(`Added ${name}`);
+  }
+
+  async function renameVehicle(){
+    const v = activeVehicle();
+    if(!v) return;
+    const name = await confirmDialog('Rename this vehicle.', {
+      title:'Rename Vehicle', confirmText:'Save', input:true, value:v.name,
+    });
+    if(!name || name === v.name) return;
+    v.name = name;
+    saveVehicles();
+    renderVehicleList();
+    render();
+    showToast('Renamed');
+  }
+
+  async function deleteVehicle(){
+    const v = activeVehicle();
+    if(!v || vehicles.length <= 1) return;
+    const n = fillCount(v.id);
+    const ok = await confirmDialog(
+      `This permanently deletes ${v.name} and its ${n} fill-up${n===1?'':'s'}. This cannot be undone.`,
+      { title:'Delete Vehicle', confirmText:'Delete', destructive:true }
+    );
+    if(!ok) return;
+    allFills = allFills.filter(f=>f.vehicleId !== v.id);
+    vehicles = vehicles.filter(x=>x.id !== v.id);
+    settings.activeVehicleId = vehicles[0].id;
+    save(); saveVehicles(); saveSettings();
+    closeSheets();
+    render();
+    showToast(`Deleted ${v.name}`);
+  }
+
+  document.getElementById('vehicle-done').addEventListener('click', closeSheets);
+  document.getElementById('vehicle-add-btn').addEventListener('click', addVehicle);
+  document.getElementById('vehicle-rename-btn').addEventListener('click', renameVehicle);
+  document.getElementById('vehicle-delete-btn').addEventListener('click', deleteVehicle);
 
   // The date field is date-only. `new Date('2026-07-09')` parses as UTC
   // midnight, which in a negative-offset timezone renders as the day BEFORE.
@@ -439,7 +588,7 @@
 
   function knownStations(){
     const seen = new Map(); // lowercased name -> {name, count, last}
-    for(const r of data){
+    for(const r of allFills){
       const name = (r.station || '').trim();
       if(!name) continue;
       const key = name.toLowerCase();
@@ -505,7 +654,7 @@
   }
 
   function openEdit(id){
-    const item = data.find(d=>d.id===id);
+    const item = allFills.find(d=>d.id===id);
     if(!item) return;
     editingId = id;
     document.getElementById('sheet-title').textContent = 'Edit Fill-Up';
@@ -589,8 +738,12 @@
     const total = parseFloat(totalEl.value) || 0;
     const price = parseFloat(priceEl.value) || (liters>0 ? total/liters : 0);
     const odoRaw = document.getElementById('f-odo').value;
+    const existing = editingId ? allFills.find(d=>d.id===editingId) : null;
     const record = {
       id: editingId || uid(),
+      // Editing keeps the fill-up on its original vehicle; new ones land on
+      // whichever vehicle is currently selected.
+      vehicleId: (existing && existing.vehicleId) || settings.activeVehicleId,
       date: fromLocalInputValue(document.getElementById('f-date').value).toISOString(),
       station: document.getElementById('f-station').value.trim(),
       location: document.getElementById('f-location').value.trim(),
@@ -601,10 +754,10 @@
       notes: document.getElementById('f-notes').value.trim(),
     };
     if(editingId){
-      const idx = data.findIndex(d=>d.id===editingId);
-      data[idx] = record;
+      const idx = allFills.findIndex(d=>d.id===editingId);
+      allFills[idx] = record;
     } else {
-      data.push(record);
+      allFills.push(record);
     }
     save();
     closeSheets();
@@ -619,7 +772,7 @@
       title:'Delete Fill-Up', confirmText:'Delete', destructive:true
     });
     if(ok){
-      data = data.filter(d=>d.id!==editingId);
+      allFills = allFills.filter(d=>d.id!==editingId);
       save();
       closeSheets();
       render();
@@ -726,7 +879,8 @@
   }
 
   function exportBackup(){
-    const blob = new Blob([JSON.stringify({data, settings}, null, 2)], {type:'application/json'});
+    const payload = { data: allFills, settings, vehicles };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
     downloadBlob(blob, `fuel-tracker-backup-${new Date().toISOString().slice(0,10)}.json`);
     showToast('Backup exported');
   }
@@ -742,11 +896,16 @@
   function sheetRows(){
     const cur = settings.currency || 'USD';
     const distUnit = settings.distanceUnit === 'mi' ? 'mi' : 'km';
-    const headers = ['Date','Station','Location','Grade','Full Tank','Liters',
+    const headers = ['Vehicle','Date','Station','Location','Grade','Full Tank','Liters',
       `Price/Liter (${cur})`, `Total Cost (${cur})`, `Odometer (${distUnit})`, 'Notes'];
-    const rows = data.slice()
-      .sort((a,b)=> new Date(a.date) - new Date(b.date))
+    // Every vehicle, grouped together and each in date order -- so the sheet
+    // reads as one block per car rather than an interleaved jumble.
+    const rows = allFills.slice()
+      .sort((a,b)=>
+        vehicleName(a.vehicleId).localeCompare(vehicleName(b.vehicleId))
+        || new Date(a.date) - new Date(b.date))
       .map(r=>[
+        vehicleName(r.vehicleId),
         fmtDateForSheet(r.date),
         r.station || '',
         r.location || '',
@@ -762,13 +921,19 @@
   }
 
   function exportCSV(){
-    if(!data.length){ showToast('No fill-ups to export'); return; }
+    if(!allFills.length){ showToast('No fill-ups to export'); return; }
     const {headers, rows} = sheetRows();
     const csvEscape = (v)=>{
       const s = String(v);
       return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
     };
-    const lines = [headers, ...rows.map(r=>r.map((v,i)=> (i===5||i===6||i===7) ? v.toFixed(i===6?3:2) : v))]
+    // Derive numeric columns from the headers so adding a column can't
+    // silently shift the formatting onto the wrong one.
+    const iLiters = headers.indexOf('Liters');
+    const iPrice  = headers.findIndex(h=>h.startsWith('Price/Liter'));
+    const iTotal  = headers.findIndex(h=>h.startsWith('Total Cost'));
+    const lines = [headers, ...rows.map(r=>r.map((v,i)=>
+        i===iPrice ? v.toFixed(3) : (i===iLiters || i===iTotal) ? v.toFixed(2) : v))]
       .map(row=>row.map(csvEscape).join(','))
       .join('\r\n');
     // Leading BOM so Excel opens UTF-8 CSVs without mangling accented characters.
@@ -886,11 +1051,16 @@
   }
 
   function exportXLSX(){
-    if(!data.length){ showToast('No fill-ups to export'); return; }
+    if(!allFills.length){ showToast('No fill-ups to export'); return; }
     const {headers, rows} = sheetRows();
-    const colWidths = [14, 20, 22, 12, 10, 10, 16, 14, 14, 32];
-    // 0-indexed data columns that are numeric: Liters, Price/Liter, Total Cost, Odometer
-    const styleForCol = {5:2, 6:3, 7:2, 8:4};
+    const colWidths = [18, 14, 20, 22, 12, 10, 10, 16, 14, 14, 32];
+    // Numeric columns, resolved by header name rather than fixed position:
+    // 2 = 2dp, 3 = 3dp, 4 = integer.
+    const styleForCol = {};
+    styleForCol[headers.indexOf('Liters')] = 2;
+    styleForCol[headers.findIndex(h=>h.startsWith('Price/Liter'))] = 3;
+    styleForCol[headers.findIndex(h=>h.startsWith('Total Cost'))] = 2;
+    styleForCol[headers.findIndex(h=>h.startsWith('Odometer'))] = 4;
 
     let rowsXml = `<row r="1" s="1">` + headers.map((h,ci)=>
       `<c r="${colLetter(ci)}1" t="inlineStr" s="1"><is><t xml:space="preserve">${escapeXml(h)}</t></is></c>`
@@ -1009,8 +1179,9 @@
       );
       if(!ok) return;
 
-      data = incoming.map(r=>({
+      allFills = incoming.map(r=>({
         id: r.id || uid(),
+        vehicleId: r.vehicleId || null,   // reconciled by ensureVehicles() below
         date: r.date || new Date().toISOString(),
         station: r.station || '',
         location: r.location || '',
@@ -1026,9 +1197,17 @@
         settings = Object.assign({ currency:'USD', distanceUnit:'km', theme:'auto' }, parsed.settings);
         applyTheme();
       }
-      save(); saveSettings();
+      // Backups predating multi-vehicle support have no `vehicles` array and no
+      // vehicleId on their fill-ups. Take the file's vehicles when present;
+      // otherwise ensureVehicles() creates one and adopts the orphaned fill-ups.
+      vehicles = (parsed && Array.isArray(parsed.vehicles) && parsed.vehicles.length)
+        ? parsed.vehicles.map(v=>({ id: v.id || newId('v_'), name: String(v.name || 'My Car') }))
+        : [];
+      saveVehicles();
+      ensureVehicles();
+      save(); saveSettings(); saveVehicles();
       document.querySelector('.tab-btn[data-tab="dashboard"]').click();
-      showToast(`Imported ${data.length} fill-up${data.length===1?'':'s'}`);
+      showToast(`Imported ${allFills.length} fill-up${allFills.length===1?'':'s'}`);
     };
     reader.onerror = ()=> showToast('Could not read that file');
     reader.readAsText(file);
@@ -1043,31 +1222,56 @@
 
   // Promise-based confirm that works in standalone home-screen apps,
   // where the native confirm() dialog is unreliable.
-  function confirmDialog(message, { title='Are you sure?', confirmText='Confirm', destructive=false } = {}){
+  // Also serves as a prompt: pass `input:true` and it resolves to the trimmed
+  // string (or false if cancelled). Native prompt() is as unreliable as
+  // confirm() in home-screen PWAs, so we reuse this dialog rather than add one.
+  function confirmDialog(message, { title='Are you sure?', confirmText='Confirm', destructive=false, input=false, value='', placeholder='' } = {}){
     return new Promise(resolve=>{
       const backdrop = document.getElementById('dialog-backdrop');
       const confirmBtn = document.getElementById('dialog-confirm');
       const cancelBtn = document.getElementById('dialog-cancel');
+      const inputEl = document.getElementById('dialog-input');
       document.getElementById('dialog-title').textContent = title;
       document.getElementById('dialog-message').textContent = message;
       confirmBtn.textContent = confirmText;
       confirmBtn.classList.toggle('destructive', destructive);
+
+      inputEl.hidden = !input;
+      if(input){
+        inputEl.value = value;
+        inputEl.placeholder = placeholder;
+        confirmBtn.disabled = !value.trim();
+      } else {
+        confirmBtn.disabled = false;
+      }
+
+      function onInput(){ confirmBtn.disabled = !inputEl.value.trim(); }
+      function onKey(e){ if(e.key === 'Enter' && !confirmBtn.disabled) onConfirm(); }
 
       function cleanup(result){
         backdrop.classList.remove('open');
         confirmBtn.removeEventListener('click', onConfirm);
         cancelBtn.removeEventListener('click', onCancel);
         backdrop.removeEventListener('click', onBackdrop);
+        inputEl.removeEventListener('input', onInput);
+        inputEl.removeEventListener('keydown', onKey);
+        confirmBtn.disabled = false;
+        inputEl.hidden = true;
         resolve(result);
       }
-      function onConfirm(){ cleanup(true); }
+      function onConfirm(){ cleanup(input ? inputEl.value.trim() : true); }
       function onCancel(){ cleanup(false); }
       function onBackdrop(e){ if(e.target === backdrop) cleanup(false); }
 
       confirmBtn.addEventListener('click', onConfirm);
       cancelBtn.addEventListener('click', onCancel);
       backdrop.addEventListener('click', onBackdrop);
+      if(input){
+        inputEl.addEventListener('input', onInput);
+        inputEl.addEventListener('keydown', onKey);
+      }
       backdrop.classList.add('open');
+      if(input) setTimeout(()=>inputEl.focus(), 50);
     });
   }
 
