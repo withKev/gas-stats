@@ -165,11 +165,10 @@
       document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
       btn.classList.add('active');
       activeTab = TAB_DEFS[i].id;
-      navbarTitle.textContent = TAB_DEFS[i].label;
       main.scrollTop = 0;
       navbar.classList.remove('scrolled');
       if(activeTab !== 'stats') destroyCharts();
-      render();
+      render();   // sets the navbar title too
     });
   });
   main.addEventListener('scroll', ()=>{
@@ -182,6 +181,7 @@
     else if(activeTab === 'settings') renderSettings();
     else renderDashboard();
     wireVehicleBar();   // after innerHTML, and covers the empty-state early returns
+    updateNavbarTitle();
     updateFabVisibility();
   }
 
@@ -198,14 +198,14 @@
     return `<div class="badge" style="width:${size}px;height:${size}px;background:${color};">${icon(iconName, iconSize, 2)}</div>`;
   }
 
-  // The switcher that sits under the large title on Dashboard and Stats.
-  function vehicleBarHtml(){
+  // The large title *is* the vehicle switcher on Dashboard and Stats. Saves a
+  // row of chrome, and the tab bar already says which tab you're on.
+  function vehicleTitleHtml(){
     const v = activeVehicle();
-    if(!v) return '';
-    return `<button class="vehicle-bar" id="vehicle-bar">
-        <span class="vehicle-bar-icon">${icon('gauge',17,2)}</span>
-        <span class="vehicle-bar-name">${escapeHtml(v.name)}</span>
-        <span class="vehicle-bar-chevron">${icon('chevron',16,2.4)}</span>
+    if(!v) return `<div class="large-title">Dashboard</div>`;
+    return `<button class="large-title vehicle-title" id="vehicle-bar" aria-label="Switch vehicle">
+        <span class="vehicle-title-name">${escapeHtml(v.name)}</span>
+        <span class="vehicle-title-chevron">${icon('chevron',22,3)}</span>
       </button>`;
   }
   function wireVehicleBar(){
@@ -213,10 +213,18 @@
     if(bar) bar.addEventListener('click', openVehicleSheet);
   }
 
+  // The collapsed navbar title mirrors whatever the large title says.
+  function updateNavbarTitle(){
+    const el = document.getElementById('navbar-title');
+    if(!el) return;
+    if(activeTab === 'settings') el.textContent = 'Settings';
+    else el.textContent = (activeVehicle() || {}).name || 'Dashboard';
+  }
+
   function renderDashboard(){
     const data = activeFills();   // scoped: everything below is this vehicle only
     const all = sortedDesc();
-    let html = `<div class="large-title">Dashboard</div>` + vehicleBarHtml();
+    let html = vehicleTitleHtml();
 
     if(all.length === 0){
       html += `
@@ -422,7 +430,7 @@
 
   function renderStats(){
     const data = activeFills();   // scoped: everything below is this vehicle only
-    let html = `<div class="large-title">Stats</div>` + vehicleBarHtml();
+    let html = vehicleTitleHtml();
     if(data.length === 0){
       html += `<div class="empty">${badge('var(--blue)','chart',56,26)}<div class="title">No Data Yet</div><div class="body">Log some fill-ups to see your stats.</div></div>`;
       main.innerHTML = html;

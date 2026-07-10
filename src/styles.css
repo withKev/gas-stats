@@ -419,19 +419,22 @@
   /* .btn-block is red by default (it only ever meant "delete"). */
   .btn-block.neutral{ color:var(--blue); }
 
-  /* Vehicle switcher, sits directly under the large title. */
-  .vehicle-bar{
-    display:flex; align-items:center; gap:8px;
-    margin:0 16px 14px; padding:9px 12px;
-    border-radius:14px; border:0.5px solid var(--glass-border);
-    background:var(--glass-strong); color:var(--text);
-    font-size:15px; font-weight:590; font-family:inherit;
-    min-height:44px; max-width:calc(100% - 32px);
+  /* The large title doubles as the vehicle switcher. Matches .large-title
+     typography exactly so it reads as a title, not a button. */
+  .vehicle-title{
+    display:flex; align-items:center; gap:7px;
+    width:100%; max-width:100%;
+    background:none; border:none; text-align:left;
+    font-family:inherit; font-size:34px; font-weight:700; letter-spacing:0.3px;
+    color:var(--text);
+    padding:4px 16px 12px;
   }
-  .vehicle-bar:active{ background:var(--fill-tertiary); }
-  .vehicle-bar-icon{ display:flex; color:var(--orange); flex-shrink:0; }
-  .vehicle-bar-name{ flex:1; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .vehicle-bar-chevron{ display:flex; color:var(--text-tertiary); flex-shrink:0; transform:rotate(90deg); }
+  .vehicle-title:active{ opacity:0.55; }
+  .vehicle-title-name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  .vehicle-title-chevron{
+    display:flex; flex-shrink:0; color:var(--text-tertiary);
+    transform:rotate(90deg) translateX(2px);
+  }
 
   .vehicle-row{
     display:flex; align-items:center; gap:10px; width:100%;
