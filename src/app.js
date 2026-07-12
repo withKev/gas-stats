@@ -113,6 +113,41 @@
 
   function sortedDesc(){ return activeFills().sort((a,b)=> new Date(b.date) - new Date(a.date)); }
 
+  // Per-fill-up metrics for the history cards: distance since the previous
+  // reading, and efficiency on full tanks. Mirrors computeEconomy()'s rules so
+  // the numbers agree with the dashboard: active vehicle only, odometer order,
+  // and a full tank's consumption covers all fuel since the last full tank.
+  // Returns a map of fill id -> { distance, economy } (either may be null).
+  function perFillMetrics(){
+    const withOdo = activeFills()
+      .filter(d=> d.odometer != null && d.odometer !== '' && !isNaN(parseFloat(d.odometer)))
+      .sort((a,b)=> parseFloat(a.odometer) - parseFloat(b.odometer));
+
+    const out = {};
+    let prevOdo = null;      // odometer of the immediately preceding reading
+    let lastFullOdo = null;  // odometer of the last full tank
+    let segLiters = 0;       // fuel added since that last full tank
+
+    for(const rec of withOdo){
+      const odo = parseFloat(rec.odometer);
+      const m = { distance: null, economy: null };
+
+      if(prevOdo !== null && odo > prevOdo) m.distance = odo - prevOdo;
+
+      if(lastFullOdo !== null) segLiters += rec.liters || 0;
+      if(rec.fullTank){
+        if(lastFullOdo !== null && odo > lastFullOdo){
+          m.economy = (segLiters / (odo - lastFullOdo)) * 100;
+        }
+        lastFullOdo = odo;
+        segLiters = 0;
+      }
+      out[rec.id] = m;
+      prevOdo = odo;
+    }
+    return out;
+  }
+
   function computeEconomy(){
     // Walk fill-ups in odometer order. Consumption between two full tanks =
     // all fuel added since the last full tank (including partials and the
@@ -278,6 +313,7 @@
     `;
 
     // Full history, grouped by month, flowing down the dashboard.
+    const metrics = perFillMetrics();
     const groups = {};
     all.forEach(item=>{
       const d = new Date(item.date);
@@ -291,12 +327,27 @@
       g.items.forEach(item=>{
         const meta = GRADE_META[item.grade] || GRADE_META['Regular'];
         const sub = item.location || new Date(item.date).toLocaleDateString();
+
+        // Compact detail line: only the fields we actually have. Odometer and
+        // price/L come straight off the fill-up; distance and efficiency are
+        // computed and may be absent (first reading, no odometer, partial tank).
+        const m = metrics[item.id] || {};
+        const parts = [];
+        if(m.distance != null) parts.push(`${Math.round(m.distance)} ${distUnit}`);
+        if(item.odometer != null && item.odometer !== '')
+          parts.push(`${Math.round(Number(item.odometer)).toLocaleString()} ${distUnit}`);
+        if(m.economy != null) parts.push(`${m.economy.toFixed(1)} L/100${distUnit}`);
+        if(item.pricePerLiter) parts.push(`${fmtMoney(item.pricePerLiter)}/L`);
+        const detail = parts.length
+          ? `<div class="row-detail">${parts.join('<span class="row-detail-dot">·</span>')}</div>` : '';
+
         html += `
           <div class="list-row tappable" data-id="${item.id}">
             <div class="badge round" style="background:color-mix(in srgb, ${meta.color} 16%, transparent); color:${meta.color};">${icon(meta.icon,16,2)}</div>
             <div class="row-main">
               <div class="row-title">${escapeHtml(item.station || 'Fill-Up')}</div>
               <div class="row-sub">${escapeHtml(sub)}</div>
+              ${detail}
             </div>
             <div class="row-right">
               <div>
