@@ -1401,6 +1401,29 @@
     return {headers, rows};
   }
 
+  // Service + modification records for every vehicle, for the Excel "Service"
+  // tab. Grouped by vehicle then date, mirroring the fuel sheet's ordering.
+  function serviceRows(){
+    const cur = settings.currency || 'USD';
+    const distUnit = settings.distanceUnit === 'mi' ? 'mi' : 'km';
+    const headers = ['Vehicle','Type','Item','Date',`Cost (${cur})`,`Odometer (${distUnit})`,'Parts','Notes'];
+    const rows = allService.slice()
+      .sort((a,b)=>
+        vehicleName(a.vehicleId).localeCompare(vehicleName(b.vehicleId))
+        || new Date(a.date) - new Date(b.date))
+      .map(s=>[
+        vehicleName(s.vehicleId),
+        s.kind === 'mod' ? 'Modification' : 'Service',
+        s.title || '',
+        fmtDateForSheet(s.date),
+        Number(s.cost) || 0,
+        (s.odometer === null || s.odometer === undefined || s.odometer === '') ? '' : Number(s.odometer),
+        s.parts || '',
+        s.notes || '',
+      ]);
+    return {headers, rows};
+  }
+
   function exportCSV(){
     if(!allFills.length){ showToast('No fill-ups to export'); return; }
     const {headers, rows} = sheetRows();
@@ -1531,18 +1554,10 @@
     return s;
   }
 
-  function exportXLSX(){
-    if(!allFills.length){ showToast('No fill-ups to export'); return; }
-    const {headers, rows} = sheetRows();
-    const colWidths = [18, 14, 20, 22, 12, 10, 10, 16, 14, 14, 32];
-    // Numeric columns, resolved by header name rather than fixed position:
-    // 2 = 2dp, 3 = 3dp, 4 = integer.
-    const styleForCol = {};
-    styleForCol[headers.indexOf('Liters')] = 2;
-    styleForCol[headers.findIndex(h=>h.startsWith('Price/Liter'))] = 3;
-    styleForCol[headers.findIndex(h=>h.startsWith('Total Cost'))] = 2;
-    styleForCol[headers.findIndex(h=>h.startsWith('Odometer'))] = 4;
-
+  // Build one worksheet's XML from headers + rows. styleForCol maps a 0-based
+  // column index to a cell style id (2=2dp, 3=3dp, 4=integer); everything else
+  // is inline text. Row 1 is the bold frozen header with an autofilter.
+  function worksheetXml(headers, rows, colWidths, styleForCol){
     let rowsXml = `<row r="1" s="1">` + headers.map((h,ci)=>
       `<c r="${colLetter(ci)}1" t="inlineStr" s="1"><is><t xml:space="preserve">${escapeXml(h)}</t></is></c>`
     ).join('') + `</row>`;
@@ -1563,7 +1578,7 @@
     const lastRow = rows.length + 1;
     const colsXml = '<cols>' + colWidths.map((w,i)=>`<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`).join('') + '</cols>';
 
-    const sheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <dimension ref="A1:${lastCol}${lastRow}"/>
   <sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
@@ -1571,6 +1586,26 @@
   <sheetData>${rowsXml}</sheetData>
   <autoFilter ref="A1:${lastCol}1"/>
 </worksheet>`;
+  }
+
+  function exportXLSX(){
+    if(!allFills.length && !allService.length){ showToast('Nothing to export'); return; }
+
+    // --- Sheet 1: Fill-ups ---
+    const fuel = sheetRows();
+    const fuelStyle = {};
+    fuelStyle[fuel.headers.indexOf('Liters')] = 2;
+    fuelStyle[fuel.headers.findIndex(h=>h.startsWith('Price/Liter'))] = 3;
+    fuelStyle[fuel.headers.findIndex(h=>h.startsWith('Total Cost'))] = 2;
+    fuelStyle[fuel.headers.findIndex(h=>h.startsWith('Odometer'))] = 4;
+    const fuelSheet = worksheetXml(fuel.headers, fuel.rows, [18,14,20,22,12,10,10,16,14,14,32], fuelStyle);
+
+    // --- Sheet 2: Service & mods ---
+    const svc = serviceRows();
+    const svcStyle = {};
+    svcStyle[svc.headers.findIndex(h=>h.startsWith('Cost'))] = 2;
+    svcStyle[svc.headers.findIndex(h=>h.startsWith('Odometer'))] = 4;
+    const svcSheet = worksheetXml(svc.headers, svc.rows, [18,14,22,14,14,14,28,32], svcStyle);
 
     const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
@@ -1598,12 +1633,13 @@
 
     const workbookXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <sheets><sheet name="Fill-ups" sheetId="1" r:id="rId1"/></sheets>
+  <sheets><sheet name="Fill-ups" sheetId="1" r:id="rId1"/><sheet name="Service &amp; Mods" sheetId="2" r:id="rId3"/></sheets>
 </workbook>`;
 
     const workbookRelsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>
   <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
 </Relationships>`;
 
@@ -1618,6 +1654,7 @@
   <Default Extension="xml" ContentType="application/xml"/>
   <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
   <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
   <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
 </Types>`;
 
@@ -1627,7 +1664,8 @@
       { name: 'xl/workbook.xml', text: workbookXml },
       { name: 'xl/_rels/workbook.xml.rels', text: workbookRelsXml },
       { name: 'xl/styles.xml', text: stylesXml },
-      { name: 'xl/worksheets/sheet1.xml', text: sheetXml },
+      { name: 'xl/worksheets/sheet1.xml', text: fuelSheet },
+      { name: 'xl/worksheets/sheet2.xml', text: svcSheet },
     ]);
 
     downloadBlob(blob, `fuel-tracker-${new Date().toISOString().slice(0,10)}.xlsx`);
