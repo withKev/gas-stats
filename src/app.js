@@ -1326,7 +1326,7 @@
         <div class="field tappable" style="cursor:pointer;" id="export-csv-row"><label style="width:auto;flex:1;">Export spreadsheet (CSV)</label><span style="color:var(--text-tertiary);">${icon('up',20)}</span></div>
         <div class="field tappable" style="cursor:pointer;" id="export-xlsx-row"><label style="width:auto;flex:1;">Export spreadsheet (Excel)</label><span style="color:var(--text-tertiary);">${icon('up',20)}</span></div>
       </div>
-      <div class="hint">Read-only, for viewing or archiving in Excel, Numbers, or Google Sheets. Editing and re-importing one of these files is not supported \u2014 use Export backup (JSON) for that.</div>
+      <div class="hint">Both include fuel fill-ups and service/mods. CSV downloads two files (fuel and service); Excel puts them on separate tabs. Read-only \u2014 for viewing or archiving in Excel, Numbers, or Google Sheets. To edit and re-import, use Export backup (JSON).</div>
     `;
 
     // Apply choices immediately so they always stick.
@@ -1424,26 +1424,51 @@
     return {headers, rows};
   }
 
-  function exportCSV(){
-    if(!allFills.length){ showToast('No fill-ups to export'); return; }
-    const {headers, rows} = sheetRows();
+  // Serialize a {headers, rows} table to CSV text. numericCols maps a 0-based
+  // column index to a fixed decimal count; everything else is written as-is.
+  function tableToCsv(headers, rows, numericCols){
     const csvEscape = (v)=>{
       const s = String(v);
       return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
     };
-    // Derive numeric columns from the headers so adding a column can't
-    // silently shift the formatting onto the wrong one.
-    const iLiters = headers.indexOf('Liters');
-    const iPrice  = headers.findIndex(h=>h.startsWith('Price/Liter'));
-    const iTotal  = headers.findIndex(h=>h.startsWith('Total Cost'));
-    const lines = [headers, ...rows.map(r=>r.map((v,i)=>
-        i===iPrice ? v.toFixed(3) : (i===iLiters || i===iTotal) ? v.toFixed(2) : v))]
+    return [headers, ...rows.map(r=>r.map((v,i)=>
+        (i in numericCols) ? Number(v).toFixed(numericCols[i]) : v))]
       .map(row=>row.map(csvEscape).join(','))
       .join('\r\n');
-    // Leading BOM so Excel opens UTF-8 CSVs without mangling accented characters.
-    const blob = new Blob(['\uFEFF' + lines], {type:'text/csv;charset=utf-8'});
-    downloadBlob(blob, `fuel-tracker-${new Date().toISOString().slice(0,10)}.csv`);
-    showToast('Spreadsheet exported (CSV)');
+  }
+
+  function exportCSV(){
+    if(!allFills.length && !allService.length){ showToast('Nothing to export'); return; }
+    const stamp = new Date().toISOString().slice(0,10);
+    let count = 0;
+
+    // Fuel CSV. Numeric columns derived from headers so a new column can't shift
+    // the formatting onto the wrong one.
+    if(allFills.length){
+      const { headers, rows } = sheetRows();
+      const numeric = {};
+      numeric[headers.indexOf('Liters')] = 2;
+      numeric[headers.findIndex(h=>h.startsWith('Price/Liter'))] = 3;
+      numeric[headers.findIndex(h=>h.startsWith('Total Cost'))] = 2;
+      const csv = tableToCsv(headers, rows, numeric);
+      // Leading BOM so Excel opens UTF-8 CSVs without mangling accented characters.
+      downloadBlob(new Blob(['\uFEFF' + csv], {type:'text/csv;charset=utf-8'}),
+        `fuel-tracker-fuel-${stamp}.csv`);
+      count++;
+    }
+
+    // Service & mods CSV (all vehicles), matching the Excel second tab.
+    if(allService.length){
+      const { headers, rows } = serviceRows();
+      const numeric = {};
+      numeric[headers.findIndex(h=>h.startsWith('Cost'))] = 2;
+      const csv = tableToCsv(headers, rows, numeric);
+      downloadBlob(new Blob(['\uFEFF' + csv], {type:'text/csv;charset=utf-8'}),
+        `fuel-tracker-service-${stamp}.csv`);
+      count++;
+    }
+
+    showToast(count > 1 ? 'Exported 2 CSV files' : 'Spreadsheet exported (CSV)');
   }
 
   // ---------- Minimal .xlsx writer (no external library, STORE-only zip) ----------
