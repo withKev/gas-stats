@@ -2,6 +2,8 @@
   const STORE_KEY = 'fuelTrackerData_v1';
   const SETTINGS_KEY = 'fuelTrackerSettings_v1';
   const VEHICLES_KEY = 'fuelTrackerVehicles_v1';
+  const SERVICE_KEY = 'fuelTrackerService_v1';    // maintenance + modification log entries
+  const INTERVALS_KEY = 'fuelTrackerIntervals_v1'; // per-vehicle service intervals
 
   // ---------- Icon system (monoline, currentColor) ----------
   function icon(name, size=20, sw=2){
@@ -12,6 +14,9 @@
       list: `<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>`,
       chart: `<path d="M4 20V10"/><path d="M12 20V4"/><path d="M20 20v-7"/>`,
       sliders: `<path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><circle cx="4" cy="13" r="2"/><circle cx="12" cy="10" r="2"/><circle cx="20" cy="14" r="2"/>`,
+      wrench: `<path d="M14.7 6.3a4 4 0 0 1-5.4 5.4L4 17v3h3l5.3-5.3a4 4 0 0 0 5.4-5.4l-2.1 2.1-2.4-.6-.6-2.4 2.1-2.1z"/>`,
+      plus_circle: `<circle cx="12" cy="12" r="9"/><path d="M12 8v8"/><path d="M8 12h8"/>`,
+      clock: `<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>`,
       plus: `<path d="M12 5v14"/><path d="M5 12h14"/>`,
       pin: `<path d="M12 22s7-6.1 7-12a7 7 0 1 0-14 0c0 5.9 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/>`,
       calendar: `<rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 10h18"/><path d="M8 3v4"/><path d="M16 3v4"/>`,
@@ -39,6 +44,8 @@
   let allFills = load(STORE_KEY, []);
   let settings = load(SETTINGS_KEY, { currency:'USD', distanceUnit:'km', theme:'auto' });
   let vehicles = load(VEHICLES_KEY, []);
+  let allService = load(SERVICE_KEY, []);       // {id, vehicleId, kind:'service'|'mod', title, date, odometer, cost, parts, notes}
+  let allIntervals = load(INTERVALS_KEY, []);   // {id, vehicleId, title, distance, months}
 
   // Fill-ups belong to exactly one vehicle. `allFills` is the persisted source
   // of truth; render code works from activeFills(). Never mix the two: reads
@@ -46,6 +53,15 @@
   function activeFills(){
     return allFills.filter(f => f.vehicleId === settings.activeVehicleId);
   }
+  // Same scoping discipline for the service log and intervals.
+  function activeService(){
+    return allService.filter(s => s.vehicleId === settings.activeVehicleId);
+  }
+  function activeIntervals(){
+    return allIntervals.filter(i => i.vehicleId === settings.activeVehicleId);
+  }
+  function saveService(){ localStorage.setItem(SERVICE_KEY, JSON.stringify(allService)); }
+  function saveIntervals(){ localStorage.setItem(INTERVALS_KEY, JSON.stringify(allIntervals)); }
   function activeVehicle(){
     return vehicles.find(v => v.id === settings.activeVehicleId) || vehicles[0] || null;
   }
@@ -75,6 +91,14 @@
   // Create one, adopt the orphans, and make it active. Idempotent: it only
   // acts on vehicles-less state, so it is safe on every load and after an
   // import of an old backup.
+  const DEFAULT_INTERVALS = [
+    { title:'Oil change',      distance:8000,  months:6 },
+    { title:'Tire rotation',   distance:10000, months:6 },
+    { title:'Engine air filter', distance:30000, months:24 },
+    { title:'Cabin air filter',  distance:25000, months:12 },
+    { title:'Brake inspection',  distance:20000, months:12 },
+  ];
+
   function ensureVehicles(){
     let dirty = false;
     if(vehicles.length === 0){
@@ -86,6 +110,29 @@
     for(const f of allFills){
       if(!f.vehicleId || !known.has(f.vehicleId)){ f.vehicleId = vehicles[0].id; dirty = true; }
     }
+    // Orphaned service entries (bad/missing vehicleId) adopt the first vehicle.
+    let serviceDirty = false;
+    for(const s of allService){
+      if(!s.vehicleId || !known.has(s.vehicleId)){ s.vehicleId = vehicles[0].id; serviceDirty = true; }
+    }
+    if(serviceDirty) saveService();
+    // Seed default intervals for any vehicle that has none yet (new installs and
+    // newly-created vehicles both), so the "next due" view isn't blank on day one.
+    let intervalsDirty = false;
+    for(const v of vehicles){
+      const has = allIntervals.some(i => i.vehicleId === v.id);
+      if(!has){
+        for(const d of DEFAULT_INTERVALS){
+          allIntervals.push({ id: newId('i_'), vehicleId: v.id, title: d.title, distance: d.distance, months: d.months });
+        }
+        intervalsDirty = true;
+      }
+    }
+    // Reconcile any orphaned intervals too.
+    for(const i of allIntervals){
+      if(!i.vehicleId || !known.has(i.vehicleId)){ i.vehicleId = vehicles[0].id; intervalsDirty = true; }
+    }
+    if(intervalsDirty) saveIntervals();
     if(!settings.activeVehicleId || !known.has(settings.activeVehicleId)){
       settings.activeVehicleId = vehicles[0].id;
       saveSettings();
@@ -182,6 +229,7 @@
   const TAB_DEFS = [
     { id:'dashboard', label:'Dashboard', icon:'grid' },
     { id:'stats',     label:'Stats',     icon:'chart' },
+    { id:'garage',    label:'Garage',    icon:'wrench' },
     { id:'settings',  label:'Settings',  icon:'sliders' },
   ];
   document.querySelectorAll('.tab-btn').forEach((btn, i)=>{
@@ -213,6 +261,7 @@
   // ---------- Render ----------
   function render(){
     if(activeTab === 'stats') renderStats();
+    else if(activeTab === 'garage') renderGarage();
     else if(activeTab === 'settings') renderSettings();
     else renderDashboard();
     wireVehicleBar();   // after innerHTML, and covers the empty-state early returns
@@ -482,6 +531,181 @@
     }
   }
 
+  // ==================== GARAGE (maintenance + mods) ====================
+
+  const distUnitLabel = ()=> settings.distanceUnit === 'mi' ? 'mi' : 'km';
+
+  // The latest known odometer for the active vehicle, from fill-ups OR service
+  // records -- whichever is highest. Used to estimate distance until due.
+  function latestOdometer(){
+    let max = null;
+    for(const f of activeFills()){
+      const o = parseFloat(f.odometer);
+      if(!isNaN(o)) max = max === null ? o : Math.max(max, o);
+    }
+    for(const s of activeService()){
+      const o = parseFloat(s.odometer);
+      if(!isNaN(o)) max = max === null ? o : Math.max(max, o);
+    }
+    return max;
+  }
+
+  // For each interval, find the most recent matching service entry (by title,
+  // case-insensitive) and compute when it's next due by date and by distance.
+  // Either basis may be unknown; "due" is whichever comes first.
+  function computeDueList(){
+    const intervals = activeIntervals();
+    const services = activeService()
+      .filter(s => s.kind === 'service')
+      .sort((a,b)=> new Date(b.date) - new Date(a.date));
+    const currentOdo = latestOdometer();
+    const now = Date.now();
+    const DAY = 86400000;
+
+    return intervals.map(iv => {
+      const last = services.find(s => (s.title||'').trim().toLowerCase() === iv.title.trim().toLowerCase());
+      const r = { interval: iv, last: last || null,
+                  dueDistance: null, distanceRemaining: null,
+                  dueDate: null, daysRemaining: null,
+                  status: 'unknown' };  // 'ok' | 'soon' | 'overdue' | 'unknown'
+
+      if(last){
+        const lastOdo = parseFloat(last.odometer);
+        if(iv.distance && !isNaN(lastOdo)){
+          r.dueDistance = lastOdo + iv.distance;
+          if(currentOdo !== null) r.distanceRemaining = r.dueDistance - currentOdo;
+        }
+        if(iv.months && last.date){
+          const d = new Date(last.date);
+          d.setMonth(d.getMonth() + iv.months);
+          r.dueDate = d;
+          r.daysRemaining = Math.round((d.getTime() - now) / DAY);
+        }
+      }
+
+      // Status = worst of the two bases we can evaluate.
+      const flags = [];
+      if(r.distanceRemaining !== null){
+        flags.push(r.distanceRemaining < 0 ? 'overdue' : r.distanceRemaining < iv.distance*0.15 ? 'soon' : 'ok');
+      }
+      if(r.daysRemaining !== null){
+        flags.push(r.daysRemaining < 0 ? 'overdue' : r.daysRemaining < 30 ? 'soon' : 'ok');
+      }
+      if(flags.includes('overdue')) r.status = 'overdue';
+      else if(flags.includes('soon')) r.status = 'soon';
+      else if(flags.includes('ok')) r.status = 'ok';
+      else r.status = last ? 'ok' : 'unknown';
+      return r;
+    });
+  }
+
+  const STATUS_COLOR = { overdue:'var(--red)', soon:'var(--orange)', ok:'var(--green)', unknown:'var(--text-tertiary)' };
+
+  function fmtShortDate(d){ return new Date(d).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}); }
+
+  function dueSummaryLine(r){
+    const unit = distUnitLabel();
+    const bits = [];
+    if(r.distanceRemaining !== null){
+      bits.push(r.distanceRemaining < 0
+        ? `${Math.abs(Math.round(r.distanceRemaining)).toLocaleString()} ${unit} overdue`
+        : `in ${Math.round(r.distanceRemaining).toLocaleString()} ${unit}`);
+    }
+    if(r.daysRemaining !== null){
+      bits.push(r.daysRemaining < 0
+        ? `${Math.abs(r.daysRemaining)} days overdue`
+        : `in ${r.daysRemaining} days`);
+    }
+    if(!bits.length) return r.last ? 'No interval set' : 'Never logged';
+    return bits.join(' · ');
+  }
+
+  function renderGarage(){
+    const service = activeService();
+    let html = titleRowHtml('Garage');
+
+    // ----- Total spent (service + mods, this vehicle; fuel excluded) -----
+    const totalSpent = service.reduce((s,x)=> s + (Number(x.cost)||0), 0);
+    const serviceCount = service.filter(x=>x.kind==='service').length;
+    const modCount = service.filter(x=>x.kind==='mod').length;
+
+    html += `<div class="stat-grid" style="margin-top:4px;">
+      <div class="stat-card" style="grid-column:1/3;">
+        ${badge('color-mix(in srgb, var(--blue) 16%, transparent)','card',32,16)}
+        <div class="stat-value">${fmtMoney(totalSpent)}</div>
+        <div class="stat-label">Total spent on service &amp; mods</div>
+      </div>
+    </div>`;
+
+    // ----- Up next (due list) -----
+    const due = computeDueList().sort((a,b)=>{
+      const order = { overdue:0, soon:1, ok:2, unknown:3 };
+      return order[a.status] - order[b.status];
+    });
+    html += `<div class="section-header" style="display:flex;justify-content:space-between;align-items:center;">
+        <span>Up Next</span>
+        <button class="link-btn" id="edit-intervals-btn">Edit intervals</button>
+      </div>`;
+    if(!due.length){
+      html += `<div class="list-card"><div class="empty-inline">No intervals set. Tap "Edit intervals" to add some.</div></div>`;
+    } else {
+      html += `<div class="list-card">` + due.map(r=>`
+        <div class="due-row">
+          <span class="due-dot" style="background:${STATUS_COLOR[r.status]};"></span>
+          <div class="due-main">
+            <div class="due-title">${escapeHtml(r.interval.title)}</div>
+            <div class="due-sub">${escapeHtml(dueSummaryLine(r))}${r.last ? ` · last ${fmtShortDate(r.last.date)}` : ''}</div>
+          </div>
+        </div>`).join('') + `</div>`;
+    }
+
+    // ----- Log (filterable) -----
+    const filter = settings.garageFilter || 'all';
+    const shown = service
+      .filter(x => filter === 'all' ? true : filter === 'service' ? x.kind==='service' : x.kind==='mod')
+      .sort((a,b)=> new Date(b.date) - new Date(a.date));
+
+    html += `<div class="section-header" style="margin-top:20px;">History</div>
+      <div class="seg-control" id="garage-filter">
+        ${['all','service','mod'].map(f=>`<button class="seg${filter===f?' active':''}" data-f="${f}">${f==='all'?'All':f==='service'?'Service':'Mods'}</button>`).join('')}
+      </div>`;
+
+    if(!shown.length){
+      html += `<div class="list-card"><div class="empty-inline">No ${filter==='all'?'':filter+' '}entries yet. Tap + to add one.</div></div>`;
+    } else {
+      html += `<div class="list-card">` + shown.map(x=>{
+        const unit = distUnitLabel();
+        const meta = [];
+        if(x.odometer!=null && x.odometer!=='') meta.push(`${Math.round(Number(x.odometer)).toLocaleString()} ${unit}`);
+        if(x.parts) meta.push(escapeHtml(x.parts));
+        const tag = x.kind==='mod' ? `<span class="kind-tag mod">Mod</span>` : `<span class="kind-tag svc">Service</span>`;
+        return `
+          <div class="list-row tappable" data-sid="${x.id}">
+            <div class="badge round" style="background:color-mix(in srgb, ${x.kind==='mod'?'var(--purple)':'var(--blue)'} 16%, transparent); color:${x.kind==='mod'?'var(--purple)':'var(--blue)'};">${icon(x.kind==='mod'?'sliders':'wrench',16,2)}</div>
+            <div class="row-main">
+              <div class="row-title">${escapeHtml(x.title || 'Service')} ${tag}</div>
+              <div class="row-sub">${fmtShortDate(x.date)}${meta.length?' · '+meta.join(' · '):''}</div>
+            </div>
+            <div class="row-right">
+              <div class="row-amount">${x.cost ? fmtMoney(x.cost) : '—'}</div>
+              <span class="chevron">${icon('chevron',16,2.2)}</span>
+            </div>
+          </div>`;
+      }).join('') + `</div>`;
+    }
+
+    main.innerHTML = html;
+
+    // Wire interactions
+    document.getElementById('edit-intervals-btn')?.addEventListener('click', openIntervalsSheet);
+    main.querySelectorAll('#garage-filter .seg').forEach(btn=>{
+      btn.addEventListener('click', ()=>{ settings.garageFilter = btn.dataset.f; saveSettings(); renderGarage(); wireVehicleBar(); });
+    });
+    main.querySelectorAll('.list-row[data-sid]').forEach(row=>{
+      row.addEventListener('click', ()=> openServiceEdit(row.dataset.sid));
+    });
+  }
+
   function renderStats(){
     const data = activeFills();   // scoped: everything below is this vehicle only
     let html = titleRowHtml('Stats');
@@ -539,13 +763,19 @@
   const backdrop = document.getElementById('backdrop');
   const editSheet = document.getElementById('edit-sheet');
   const vehicleSheet = document.getElementById('vehicle-sheet');
+  const serviceSheet = document.getElementById('service-sheet');
+  const intervalsSheet = document.getElementById('intervals-sheet');
   let editingId = null;
+  let editingServiceId = null;
+  let serviceKind = 'service';
 
   function openSheet(sheet){ backdrop.classList.add('open'); sheet.classList.add('open'); }
   function closeSheets(){
     backdrop.classList.remove('open');
     editSheet.classList.remove('open');
     vehicleSheet.classList.remove('open');
+    serviceSheet.classList.remove('open');
+    intervalsSheet.classList.remove('open');
   }
   backdrop.addEventListener('click', closeSheets);
 
@@ -613,15 +843,19 @@
     const v = activeVehicle();
     if(!v || vehicles.length <= 1) return;
     const n = fillCount(v.id);
+    const sn = allService.filter(s=>s.vehicleId === v.id).length;
+    const extra = sn ? ` and ${sn} service record${sn===1?'':'s'}` : '';
     const ok = await confirmDialog(
-      `This permanently deletes ${v.name} and its ${n} fill-up${n===1?'':'s'}. This cannot be undone.`,
+      `This permanently deletes ${v.name}, its ${n} fill-up${n===1?'':'s'}${extra}. This cannot be undone.`,
       { title:'Delete Vehicle', confirmText:'Delete', destructive:true }
     );
     if(!ok) return;
     allFills = allFills.filter(f=>f.vehicleId !== v.id);
+    allService = allService.filter(s=>s.vehicleId !== v.id);
+    allIntervals = allIntervals.filter(i=>i.vehicleId !== v.id);
     vehicles = vehicles.filter(x=>x.id !== v.id);
     settings.activeVehicleId = vehicles[0].id;
-    save(); saveVehicles(); saveSettings();
+    save(); saveService(); saveIntervals(); saveVehicles(); saveSettings();
     closeSheets();
     render();
     showToast(`Deleted ${v.name}`);
@@ -631,6 +865,188 @@
   document.getElementById('vehicle-add-btn').addEventListener('click', addVehicle);
   document.getElementById('vehicle-rename-btn').addEventListener('click', renameVehicle);
   document.getElementById('vehicle-delete-btn').addEventListener('click', deleteVehicle);
+
+  // ---------- Service records ----------
+  function setServiceKind(k){
+    serviceKind = k;
+    document.querySelectorAll('#service-kind .seg').forEach(b=> b.classList.toggle('active', b.dataset.k===k));
+  }
+
+  function validateService(){
+    const title = document.getElementById('s-title').value.trim();
+    document.getElementById('service-save').disabled = !title;
+  }
+
+  // Suggestions come from the vehicle's interval titles plus titles already used.
+  function renderServiceSuggest(){
+    const row = document.getElementById('service-suggest');
+    const input = document.getElementById('s-title');
+    const typed = input.value.trim().toLowerCase();
+    const names = new Set();
+    activeIntervals().forEach(i=> names.add(i.title));
+    activeService().forEach(s=> { if(s.title) names.add(s.title); });
+    const matches = [...names]
+      .filter(n=> !typed || (n.toLowerCase().includes(typed) && n.toLowerCase() !== typed))
+      .slice(0,6);
+    if(!matches.length){ row.hidden = true; row.innerHTML=''; return; }
+    row.hidden = false;
+    row.innerHTML = matches.map(n=>`<button type="button" class="suggest-chip">${escapeHtml(n)}</button>`).join('');
+    row.querySelectorAll('.suggest-chip').forEach((btn,i)=>{
+      btn.addEventListener('click', ()=>{ input.value = matches[i]; validateService(); renderServiceSuggest(); });
+    });
+  }
+
+  function openServiceAdd(){
+    editingServiceId = null;
+    document.getElementById('service-sheet-title').textContent = 'Add Record';
+    setServiceKind('service');
+    document.getElementById('s-title').value = '';
+    document.getElementById('s-date').value = toLocalInputValue(new Date());
+    document.getElementById('s-odo').value = '';
+    document.getElementById('s-cost').value = '';
+    document.getElementById('s-parts').value = '';
+    document.getElementById('s-notes').value = '';
+    document.getElementById('service-delete').style.display = 'none';
+    renderServiceSuggest();
+    validateService();
+    openSheet(serviceSheet);
+  }
+
+  function openServiceEdit(id){
+    const x = allService.find(s=>s.id===id);
+    if(!x) return;
+    editingServiceId = id;
+    document.getElementById('service-sheet-title').textContent = 'Edit Record';
+    setServiceKind(x.kind === 'mod' ? 'mod' : 'service');
+    document.getElementById('s-title').value = x.title || '';
+    document.getElementById('s-date').value = x.date ? toLocalInputValue(new Date(x.date)) : toLocalInputValue(new Date());
+    document.getElementById('s-odo').value = (x.odometer==null||x.odometer==='') ? '' : x.odometer;
+    document.getElementById('s-cost').value = x.cost || '';
+    document.getElementById('s-parts').value = x.parts || '';
+    document.getElementById('s-notes').value = x.notes || '';
+    document.getElementById('service-delete').style.display = '';
+    renderServiceSuggest();
+    validateService();
+    openSheet(serviceSheet);
+  }
+
+  function saveServiceRecord(){
+    const title = document.getElementById('s-title').value.trim();
+    if(!title) return;
+    const odoRaw = document.getElementById('s-odo').value;
+    const existing = editingServiceId ? allService.find(s=>s.id===editingServiceId) : null;
+    const rec = {
+      id: editingServiceId || newId('s_'),
+      vehicleId: (existing && existing.vehicleId) || settings.activeVehicleId,
+      kind: serviceKind,
+      title,
+      date: fromLocalInputValue(document.getElementById('s-date').value).toISOString(),
+      odometer: odoRaw === '' ? null : Number(odoRaw),
+      cost: Number(document.getElementById('s-cost').value) || 0,
+      parts: document.getElementById('s-parts').value.trim(),
+      notes: document.getElementById('s-notes').value.trim(),
+    };
+    if(editingServiceId){
+      const i = allService.findIndex(s=>s.id===editingServiceId);
+      allService[i] = rec;
+    } else {
+      allService.push(rec);
+    }
+    saveService();
+    closeSheets();
+    render();
+    showToast(editingServiceId ? 'Record updated' : 'Record added');
+  }
+
+  async function deleteServiceRecord(){
+    if(!editingServiceId) return;
+    const ok = await confirmDialog('Delete this record? This cannot be undone.',
+      { title:'Delete Record', confirmText:'Delete', destructive:true });
+    if(!ok) return;
+    allService = allService.filter(s=>s.id!==editingServiceId);
+    saveService();
+    closeSheets();
+    render();
+    showToast('Record deleted');
+  }
+
+  document.getElementById('service-cancel').addEventListener('click', closeSheets);
+  document.getElementById('service-save').addEventListener('click', saveServiceRecord);
+  document.getElementById('service-delete').addEventListener('click', deleteServiceRecord);
+  document.getElementById('s-title').addEventListener('input', ()=>{ validateService(); renderServiceSuggest(); });
+  document.querySelectorAll('#service-kind .seg').forEach(btn=>{
+    btn.addEventListener('click', ()=> setServiceKind(btn.dataset.k));
+  });
+
+  // ---------- Intervals editor ----------
+  function renderIntervalsList(){
+    const list = document.getElementById('intervals-list');
+    const unit = distUnitLabel();
+    const items = activeIntervals();
+    if(!items.length){
+      list.innerHTML = `<div class="empty-inline">No intervals. Tap Add to create one.</div>`;
+      return;
+    }
+    list.innerHTML = items.map(iv=>`
+      <div class="interval-row" data-id="${iv.id}">
+        <div class="interval-main">
+          <div class="interval-title">${escapeHtml(iv.title)}</div>
+          <div class="interval-sub">${iv.distance? Math.round(iv.distance).toLocaleString()+' '+unit : 'no distance'} · ${iv.months? iv.months+' mo' : 'no time'}</div>
+        </div>
+        <button class="interval-edit" data-id="${iv.id}">Edit</button>
+        <button class="interval-del" data-id="${iv.id}">${icon('trash',18,2)}</button>
+      </div>`).join('');
+    list.querySelectorAll('.interval-edit').forEach(b=> b.addEventListener('click', ()=> editInterval(b.dataset.id)));
+    list.querySelectorAll('.interval-del').forEach(b=> b.addEventListener('click', ()=> deleteInterval(b.dataset.id)));
+  }
+
+  function openIntervalsSheet(){ renderIntervalsList(); openSheet(intervalsSheet); }
+
+  async function addInterval(){
+    const title = await confirmDialog('Name this service item.', { title:'Add Interval', confirmText:'Next', input:true, placeholder:'e.g. Transmission fluid' });
+    if(!title) return;
+    await promptIntervalValues({ id: newId('i_'), vehicleId: settings.activeVehicleId, title, distance:0, months:0 }, true);
+  }
+
+  async function editInterval(id){
+    const iv = allIntervals.find(x=>x.id===id);
+    if(iv) await promptIntervalValues(iv, false);
+  }
+
+  // Two quick prompts for the numbers, reusing the input dialog.
+  async function promptIntervalValues(iv, isNew){
+    const unit = distUnitLabel();
+    const dist = await confirmDialog(`Every how many ${unit}? (0 to skip distance)`, {
+      title: iv.title, confirmText:'Next', input:true, value: iv.distance? String(iv.distance):'', placeholder:`e.g. 8000` });
+    if(dist === false) return;
+    const months = await confirmDialog('Every how many months? (0 to skip time)', {
+      title: iv.title, confirmText:'Save', input:true, value: iv.months? String(iv.months):'', placeholder:'e.g. 6' });
+    if(months === false) return;
+    iv.distance = Math.max(0, parseInt(dist,10) || 0);
+    iv.months = Math.max(0, parseInt(months,10) || 0);
+    if(isNew) allIntervals.push(iv);
+    saveIntervals();
+    renderIntervalsList();
+    render();  // refresh the Up Next list underneath
+    wireVehicleBar();
+  }
+
+  async function deleteInterval(id){
+    const iv = allIntervals.find(x=>x.id===id);
+    if(!iv) return;
+    const ok = await confirmDialog(`Delete the "${iv.title}" interval? Your logged records stay.`,
+      { title:'Delete Interval', confirmText:'Delete', destructive:true });
+    if(!ok) return;
+    allIntervals = allIntervals.filter(x=>x.id!==id);
+    saveIntervals();
+    renderIntervalsList();
+    render();
+    wireVehicleBar();
+  }
+
+  document.getElementById('intervals-done').addEventListener('click', closeSheets);
+  document.getElementById('interval-add-btn').addEventListener('click', addInterval);
+
 
   // The date field is date-only. `new Date('2026-07-09')` parses as UTC
   // midnight, which in a negative-offset timezone renders as the day BEFORE.
@@ -736,7 +1152,10 @@
     openSheet(editSheet);
   }
 
-  document.getElementById('fab').addEventListener('click', openAdd);
+  document.getElementById('fab').addEventListener('click', ()=>{
+    if(activeTab === 'garage') openServiceAdd();
+    else openAdd();
+  });
   document.getElementById('cancel-btn').addEventListener('click', closeSheets);
 
   // Live-filter the station chips as the user types.
@@ -941,7 +1360,7 @@
   }
 
   function exportBackup(){
-    const payload = { data: allFills, settings, vehicles };
+    const payload = { data: allFills, settings, vehicles, service: allService, intervals: allIntervals };
     const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
     downloadBlob(blob, `fuel-tracker-backup-${new Date().toISOString().slice(0,10)}.json`);
     showToast('Backup exported');
@@ -1265,9 +1684,14 @@
       vehicles = (parsed && Array.isArray(parsed.vehicles) && parsed.vehicles.length)
         ? parsed.vehicles.map(v=>({ id: v.id || newId('v_'), name: String(v.name || 'My Car') }))
         : [];
-      saveVehicles();
+      // Service log and intervals: take them if the backup has them, else empty.
+      // ensureVehicles() then reconciles orphans and seeds default intervals for
+      // any vehicle missing them (e.g. an old backup with no service section).
+      allService = (parsed && Array.isArray(parsed.service)) ? parsed.service : [];
+      allIntervals = (parsed && Array.isArray(parsed.intervals)) ? parsed.intervals : [];
+      saveVehicles(); saveService(); saveIntervals();
       ensureVehicles();
-      save(); saveSettings(); saveVehicles();
+      save(); saveSettings(); saveVehicles(); saveService(); saveIntervals();
       document.querySelector('.tab-btn[data-tab="dashboard"]').click();
       showToast(`Imported ${allFills.length} fill-up${allFills.length===1?'':'s'}`);
     };

@@ -60,6 +60,7 @@
   <nav class="tabbar">
     <button class="tab-btn active" data-tab="dashboard"></button>
     <button class="tab-btn" data-tab="stats"></button>
+    <button class="tab-btn" data-tab="garage"></button>
     <button class="tab-btn" data-tab="settings"></button>
   </nav>
 </div>
@@ -150,6 +151,61 @@
 
   <button class="btn-block neutral" id="vehicle-rename-btn">Rename Current Vehicle</button>
   <button class="btn-block" id="vehicle-delete-btn">Delete Current Vehicle</button>
+</div>
+
+<div class="sheet" id="service-sheet">
+  <div class="sheet-header">
+    <button id="service-cancel">Cancel</button>
+    <h2 id="service-sheet-title">Add Record</h2>
+    <button class="save" id="service-save" disabled>Save</button>
+  </div>
+
+  <div class="seg-control" id="service-kind" style="margin:8px 16px 4px;">
+    <button class="seg active" data-k="service">Service</button>
+    <button class="seg" data-k="mod">Modification</button>
+  </div>
+
+  <div class="field-group">
+    <div class="field">
+      <label for="s-title">Item</label>
+      <input type="text" id="s-title" placeholder="e.g. Oil change" autocomplete="off" autocapitalize="words">
+    </div>
+    <div class="suggest-row" id="service-suggest" hidden></div>
+    <div class="field">
+      <label for="s-date">Date</label>
+      <input type="date" id="s-date">
+    </div>
+    <div class="field">
+      <label for="s-odo">Odometer</label>
+      <input type="number" id="s-odo" inputmode="numeric" placeholder="optional">
+    </div>
+    <div class="field">
+      <label for="s-cost">Cost</label>
+      <input type="number" id="s-cost" inputmode="decimal" placeholder="0.00">
+    </div>
+    <div class="field">
+      <label for="s-parts">Parts</label>
+      <input type="text" id="s-parts" placeholder="optional, e.g. Mobil 1 5W-30">
+    </div>
+  </div>
+  <div class="field-group">
+    <div class="field field-stacked">
+      <label for="s-notes">Notes</label>
+      <textarea id="s-notes" rows="3" placeholder="Optional"></textarea>
+    </div>
+  </div>
+
+  <button class="btn-block" id="service-delete" style="display:none;">Delete Record</button>
+</div>
+
+<div class="sheet" id="intervals-sheet">
+  <div class="sheet-header">
+    <button id="intervals-done">Done</button>
+    <h2>Service Intervals</h2>
+    <button class="save" id="interval-add-btn">Add</button>
+  </div>
+  <div class="field-group" id="intervals-list"></div>
+  <div class="hint">"Up Next" uses these to estimate when each item is due, by distance or time \u2014 whichever comes first. Set either field to 0 to ignore it.</div>
 </div>
 
 <!-- Persistent hidden file input for import (Settings is now a tab) -->
