@@ -625,15 +625,27 @@
     let html = titleRowHtml('Garage');
 
     // ----- Total spent (service + mods, this vehicle; fuel excluded) -----
-    const totalSpent = service.reduce((s,x)=> s + (Number(x.cost)||0), 0);
-    const serviceCount = service.filter(x=>x.kind==='service').length;
-    const modCount = service.filter(x=>x.kind==='mod').length;
+    const serviceTotal = service.filter(x=>x.kind==='service').reduce((s,x)=> s + (Number(x.cost)||0), 0);
+    const modTotal = service.filter(x=>x.kind==='mod').reduce((s,x)=> s + (Number(x.cost)||0), 0);
+    const totalSpent = serviceTotal + modTotal;
 
     html += `<div class="stat-grid" style="margin-top:4px;">
       <div class="stat-card" style="grid-column:1/3;">
         ${badge('color-mix(in srgb, var(--blue) 16%, transparent)','card',32,16)}
         <div class="stat-value">${fmtMoney(totalSpent)}</div>
         <div class="stat-label">Total spent on service &amp; mods</div>
+      </div>
+    </div>
+    <div class="stat-grid" style="margin-top:12px;">
+      <div class="stat-card">
+        ${badge('color-mix(in srgb, var(--blue) 16%, transparent)','wrench',32,16)}
+        <div class="stat-value" style="color:var(--blue);">${fmtMoney(serviceTotal)}</div>
+        <div class="stat-label">Service</div>
+      </div>
+      <div class="stat-card">
+        ${badge('color-mix(in srgb, var(--purple) 16%, transparent)','sliders',32,16)}
+        <div class="stat-value" style="color:var(--purple);">${fmtMoney(modTotal)}</div>
+        <div class="stat-label">Modifications</div>
       </div>
     </div>`;
 
