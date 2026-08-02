@@ -17,36 +17,43 @@ Live at **gas-stats.pages.dev** (Cloudflare Pages), built from
 
 ## Session start — do this first, every new chat
 
-The container starts empty. The project ships as a zip attached to the chat.
+The container starts empty and **the GitHub repo is the source of truth**
+(github.com/withKev/gas-stats, production = `main`). Clone it rather than
+hunting for a zip:
 
 ```bash
-mkdir -p /home/claude/webapp
-unzip -q /mnt/user-data/uploads/fuel-tracker-source.zip -d /home/claude/webapp
-cd /home/claude/webapp
+cd /home/claude
+git clone https://github.com/withKev/gas-stats.git webapp
+cd webapp
 npm ci                                  # REQUIRED — verify.js needs puppeteer
 python3 build.py && node verify.js
 ```
 
-If that prints `ALL CHECKS PASSED`, you have a known-good baseline and can
-start work. If the zip is in the project files instead of uploads, look in
-`/mnt/project/`. Never start editing before you have a passing baseline —
-otherwise you can't tell your bug from a pre-existing one.
+If that prints `ALL CHECKS PASSED`, you have a known-good baseline and can start
+work. Never start editing before you have a passing baseline — otherwise you
+can't tell your bug from a pre-existing one.
+
+The repo is public, so the clone needs no auth. Pushing does — ask the user for
+a fresh fine-grained PAT when you're ready to deploy (see CI/CD below). A zip
+may also be attached to the chat or sitting in `/mnt/project/`; if so it should
+match the repo, but prefer the repo when they disagree.
 
 `npm ci` downloads Chromium (~1 min). If the sandbox blocks the download, set
-`CHROME_PATH` to an existing Chrome binary and `verify.js` will use it instead.
+`CHROME_PATH` to an existing Chrome binary and `verify.js` will use it instead —
+in this environment that path has been
+`/home/claude/.cache/puppeteer/chrome/linux-131.0.6778.204/chrome-linux64/chrome`.
 
-At the end of a session, re-zip `src build.py verify.js sample-data.json
-package.json package-lock.json gen_splash.py .github .gitignore` and give the
-user the updated zip, so the next session starts from your work.
+You don't need to hand the user a zip at the end — their work lives in the repo
+once merged. Only produce a zip if they explicitly ask.
 
 ## Project layout
 
 ```
 webapp/
   src/                  <- EDIT ONLY THESE
-    index.html          markup shell + iOS splash/icon <link> tags
+    index.html          markup shell + iOS splash/icon <link> tags + all sheets
     styles.css          all styling, design tokens at top
-    app.js              all logic
+    app.js              all logic (~1500 lines; use grep, don't read whole)
     sw.js               service worker (cache version lives here)
     manifest.json
     lib/chart.umd.min.js  200 KB  vendored, DO NOT EDIT
@@ -55,7 +62,7 @@ webapp/
   build.py              build script
   verify.js             smoke test (needs `npm ci` first)
   gen_splash.py         regenerates icon-180 + all splash images from icon-512
-  sample-data.json      13 real fill-ups; verify.js seeds localStorage with these
+  sample-data.json      13 fill-ups; verify.js seeds localStorage with these
   package.json          devDeps only: puppeteer (verify), wrangler (deploy)
   .github/workflows/deploy.yml   CI/CD
   dist/                 GENERATED — never edit, never read
@@ -146,19 +153,38 @@ state. Note `sample-data.json` is `{data, settings}`, not a bare array.
 
 Three bottom tabs: **Dashboard**, **Stats**, **Settings**.
 
+Four tabs: Dashboard, Stats, **Garage**, Settings. The **vehicle switcher** is
+the grey name + chevron at the right end of the large title on Dashboard, Stats,
+and Garage (tap to open the vehicle sheet). Everything is scoped to the active
+vehicle.
+
 - **Dashboard** — orange gradient hero card (last fill-up), four stat cards
   (this month, YTD, avg price/L, avg consumption), then the full fill-up
-  history grouped by month, newest first. Tap any row to edit.
+  history grouped by month, newest first. Each history card has a compact
+  metrics line (km driven, odometer, full-tank efficiency, price/L) — fields
+  are omitted when not computable. Tap any row to edit.
 - **Stats** — four stat cards, an interactive Monthly Spend bar chart and a
   Price per Liter line chart (Chart.js, tooltips on tap/hover).
+- **Garage** — maintenance + modification log. Total spent (combined, plus
+  Service and Mods subtotals; fuel excluded), an "Up Next" due list (per the
+  vehicle's intervals; status coloured overdue/soon/ok/unlogged), and a
+  filterable history (All / Service / Mods). "Edit intervals" opens the
+  intervals editor. The FAB opens the *service* form here, the fill-up form
+  elsewhere.
 - **Settings** — currency (20 options), distance unit (km/mi), appearance
-  (Automatic/Light/Dark), then two sections:
+  (Automatic/Light/Dark), then:
   - **Backup**: Export backup (JSON) / Import backup (JSON)
-  - **Spreadsheet Export**: Export CSV / Export Excel — read-only
-- **FAB** — round orange "+" bottom-right; opens the add sheet. Hidden on
-  Settings.
-- Add/edit sheet: date, station, location (+ GPS button), grade, full-tank
-  toggle, liters, price/L (auto-computes total), odometer, notes, delete.
+  - **Spreadsheet Export**: CSV (two files: fuel + service) / Excel (two tabs:
+    Fill-ups + Service & Mods) — read-only
+- **FAB** — round orange "+" bottom-right; opens the add sheet (fill-up, or
+  service on Garage). Hidden on Settings; tucks away on scroll-down.
+- Fill-up sheet: date, station (+ suggestion chips), location (+ GPS button),
+  grade, full-tank toggle, liters, price/L (auto-computes total), odometer,
+  notes, delete.
+- Service sheet: Service/Modification toggle, item (+ suggestions from interval
+  names & prior entries), date, odometer, cost, parts, notes, delete.
+- Vehicle sheet: switch/add/rename/delete (delete cascades to that vehicle's
+  fill-ups, service, and intervals; blocked when only one vehicle remains).
 
 Mobile/PWA: safe-area insets, `100dvh`, 16px inputs (blocks iOS focus-zoom),
 44pt tap targets, 180×180 apple-touch-icon, maskable manifest icons, and 16
@@ -174,25 +200,41 @@ tokens. Dark mode is driven by `:root[data-theme="dark"]` plus a
 
 ## Data model
 
-localStorage key `fuelTrackerData_v1` — array of:
+**Five localStorage keys.** All list data is per-vehicle via a `vehicleId`.
+The persisted arrays are `allFills` / `allService` / `allIntervals`; render code
+reads the scoped views `activeFills()` / `activeService()` / `activeIntervals()`.
+**Never mix them: reads scope to the active vehicle, writes always target the
+`all*` arrays.** Mixing them up is how data gets lost.
 
-```json
-{ "id":"f_...", "date":"ISO-8601", "station":"", "location":"",
-  "grade":"Regular|Mid-Grade|Premium|Diesel|E85", "fullTank":true,
-  "liters":0, "pricePerLiter":0, "totalCost":0, "odometer":null, "notes":"" }
-```
+- `fuelTrackerData_v1` — fill-ups:
+  `{ id:"f_...", vehicleId, date:ISO, station, location,
+     grade:"Regular|Mid-Grade|Premium|Diesel|E85", fullTank:bool,
+     liters, pricePerLiter, totalCost, odometer:null, notes }`
+- `fuelTrackerVehicles_v1` — `[{ id:"v_...", name }]`
+- `fuelTrackerService_v1` — service/mod log:
+  `{ id:"s_...", vehicleId, kind:"service"|"mod", title, date:ISO,
+     odometer:null, cost, parts, notes }`
+- `fuelTrackerIntervals_v1` — per-vehicle intervals:
+  `{ id:"i_...", vehicleId, title, distance, months }` (either may be 0)
+- `fuelTrackerSettings_v1` —
+  `{ currency, distanceUnit, theme, activeVehicleId, garageFilter }`
 
-localStorage key `fuelTrackerSettings_v1`:
-`{ "currency":"CAD", "distanceUnit":"km", "theme":"auto" }`
+`ensureVehicles()` runs on load and after import: creates a "My Car" if none
+exist, adopts orphaned fill-ups/service/intervals onto the first vehicle,
+seeds `DEFAULT_INTERVALS` (oil, tire rotation, engine + cabin air filter,
+brakes) for any vehicle with none, and fixes a missing/invalid activeVehicleId.
+It is idempotent — safe on every load.
 
 **JSON is the only re-importable format.** Backup files are
-`{ data:[...], settings:{...} }`. The importer also accepts a bare array and
-back-fills defaults for missing fields — preserve that. Never drop a field
-without a migration. Warn before destructive actions.
+`{ data, settings, vehicles, service, intervals }`. The importer also accepts a
+bare array and back-fills defaults, and tolerates old backups missing the
+vehicles/service/intervals keys (ensureVehicles reconciles them). Never drop a
+field without a migration. Warn before destructive actions.
 
-CSV and XLSX exports are **read-only archives**, deliberately. They omit `id`
-and settings. Do not add spreadsheet import without asking — it's a much
-heavier lift (validation of dates, grades, numerics) than JSON import.
+CSV and XLSX exports are **read-only archives**, deliberately. CSV downloads two
+files (fuel + service, all vehicles); XLSX is one workbook with two sheets.
+Both omit `id` and settings. Do not add spreadsheet import without asking — it's
+a much heavier lift than JSON import.
 
 ## Non-obvious things that already bit us — don't regress these
 
@@ -206,7 +248,10 @@ heavier lift (validation of dates, grades, numerics) than JSON import.
 3. **Fuel economy** is liters between consecutive *full* tanks divided by
    distance, and must include partial fills in between. See `computeEconomy()`.
    Naively summing only full tanks undercounts. With the sample data the
-   correct answer is 16.8 L/100km.
+   correct answer is 16.8 L/100km. **It must be scoped to one vehicle** — two
+   cars' odometers interleave (e.g. 45,000 next to 12,000) and would pair into
+   meaningless distances: no error, just a silently wrong number. Same applies
+   to `perFillMetrics()` (the per-card km/efficiency line) and `computeDueList()`.
 4. **Native `<select>` popups ignore page colors.** Option colors are set
    explicitly for light and dark. Keep both.
 5. **Stale service-worker caches** made fixes look like they never landed.
@@ -234,6 +279,21 @@ heavier lift (validation of dates, grades, numerics) than JSON import.
    It looks like a no-op and is not. If the black band ever returns, the escape
    hatch is to drop `black-translucent` (use `default`), which kills the whole
    bug class at the cost of the edge-to-edge status bar.
+10. **`\uXXXX` escapes only decode inside JS strings, not raw HTML.** A literal
+    `\u2014` typed into markup in `index.html` prints as the four characters
+    `\u2014`, not an em dash. In `app.js` template literals it decodes fine.
+    In static HTML use the entity (`&mdash;`) or the actual character.
+11. **"Up Next" due matching is by title, case-insensitive.** A logged service
+    only advances the interval whose `title` matches. "Oil change" vs "Oil &
+    filter" won't match — the suggestion chips exist to keep titles consistent.
+12. **Changing an input's `type` can silently drop it out of a CSS selector.**
+    `.field input[type=datetime-local]` stopped matching when the date field
+    became `type=date`, so it lost all styling and iOS drew a default box. When
+    you change a `type=`, grep `styles.css` for the old one.
+13. **Adding a spreadsheet column shifts every hard-coded column index.** The
+    CSV/XLSX writers derive numeric-column indices from the header names
+    (`headers.indexOf('Liters')` etc.), not fixed positions, so a new column
+    can't silently mis-format another. Keep it that way.
 
 ## Tooling gotchas (cost real time; don't rediscover)
 
@@ -267,6 +327,16 @@ heavier lift (validation of dates, grades, numerics) than JSON import.
   and no scroll appears. Verified on device. Don't "fix" the phantom scroll.
 - `scrollHeight > clientHeight` does not tell you whether a user can scroll —
   `overflow:hidden` leaves that true and still allows programmatic `scrollTop`.
+- **Validate generated files with a real parser, not eyeballing.** The .xlsx
+  writer is hand-rolled OOXML; after any change, drive a headless export
+  (hook `URL.createObjectURL` to capture the Blob) and load it with
+  `openpyxl` under `warnings.simplefilter('error')`. A subtle rels/sheet-id
+  mistake makes Excel refuse to open the file, and that won't show in a smoke
+  test. For CSV, check the raw bytes start with the UTF-8 BOM (`EF BB BF`) —
+  `blob.text()` strips it on read, so assert on `arrayBuffer()` bytes.
+- The image/screenshot viewer occasionally fails to render a valid PNG. Don't
+  treat that as a code failure — confirm via measured geometry/pixel data
+  instead, and note you couldn't eyeball it.
 
 ## Deployment (what to tell the user)
 
@@ -292,12 +362,20 @@ heavier lift (validation of dates, grades, numerics) than JSON import.
 
 ## Next steps
 
-Nothing committed. Two mobile items were scoped but not built:
+Everything shipped is in production (`main`). Two mobile items remain scoped but
+not built — and note **neither is verifiable from the sandbox** (headless Chrome
+can't emulate the iOS keyboard or measure real frame timing); they need the
+user's phone:
 
-1. **Keyboard-safe form layout** — unverified whether add/edit sheet inputs
-   stay visible when the iOS keyboard opens.
+1. **Keyboard-safe form layout** — unverified whether the fill-up/service sheet
+   inputs stay visible when the iOS keyboard opens.
 2. **Scroll/animation performance pass** — heavy `backdrop-filter` blur may
    drop frames on the 120 Hz ProMotion display. Unprofiled.
+
+Minor known behaviours (not bugs, but a user might ask): editing a fill-up or
+service record keeps it on its original vehicle — there's no move-between-cars.
+The GitHub Actions workflow still uses `actions/checkout@v4` etc. on a
+deprecated Node-20 runtime (harmless warning; bump when convenient).
 
 Housekeeping: workflow still uses `actions/checkout@v4` etc., which GitHub warns
 run on a deprecated Node 20 runtime. Harmless; bump when convenient.
