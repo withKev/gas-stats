@@ -139,6 +139,11 @@ errors, Chart.js defined, all tab icons present, FAB icon present, fill-up rows
 render, both charts actually paint pixels, the Settings tab renders, and the FAB
 hides on Settings.
 
+For one-off checks beyond the smoke test, use `test-helper.js` (committed at repo
+root) instead of writing a fresh puppeteer script:
+`node test-helper.js "<in-page JS returning JSON>"`, with env options
+TAB/DARK/DATA/SHOT and export capture via `window.__grab()`. See its header.
+
 That is a floor, not a ceiling. If you change something visual, screenshot the
 actual element and look at it. If you generate a file, open it with a real
 parser (e.g. `openpyxl` for .xlsx) and assert on its contents. If you reference
