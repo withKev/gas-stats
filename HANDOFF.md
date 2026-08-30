@@ -186,8 +186,12 @@ vehicle.
 - Fill-up sheet: date, station (+ suggestion chips), location (+ GPS button),
   grade, full-tank toggle, liters, price/L (auto-computes total), odometer,
   notes, delete.
-- Service sheet: Service/Modification toggle, item (+ suggestions from interval
-  names & prior entries), date, odometer, cost, parts, notes, delete.
+- Service sheet: Service/Modification toggle, a custom entry title, shared
+  date + odometer, then an **Items** section — tap interval chips to add an item
+  or "+ Add item" to free-type one. Each item has a cost and its own **part
+  lines** (name + price, add/removable). An item's cost is the sum of its parts
+  when it has any (read-only) and directly editable when it has none. A live
+  entry total sums the item costs. Then notes, delete.
 - Vehicle sheet: switch/add/rename/delete (delete cascades to that vehicle's
   fill-ups, service, and intervals; blocked when only one vehicle remains).
 
@@ -216,9 +220,17 @@ reads the scoped views `activeFills()` / `activeService()` / `activeIntervals()`
      grade:"Regular|Mid-Grade|Premium|Diesel|E85", fullTank:bool,
      liters, pricePerLiter, totalCost, odometer:null, notes }`
 - `fuelTrackerVehicles_v1` — `[{ id:"v_...", name }]`
-- `fuelTrackerService_v1` — service/mod log:
+- `fuelTrackerService_v1` — service/mod log; each entry holds an `items` array,
+  and each item holds priced `parts`:
   `{ id:"s_...", vehicleId, kind:"service"|"mod", title, date:ISO,
-     odometer:null, cost, parts, notes }`
+     odometer:null, notes,
+     items:[ { title, cost, parts:[ {name, price} ] } ] }`
+  An item's `cost` equals the sum of its part prices when it has parts, else a
+  directly-entered value. The entry total (and Garage subtotals) come from
+  `serviceCost()` = sum of item costs. Use the `serviceItems()` / `serviceCost()`
+  / `serviceItemTitles()` / `serviceLabel()` helpers rather than reading these
+  fields raw — they normalize the shape (and tolerate legacy string parts).
+  `sumCents()` rounds money sums to whole cents (floating-point guard).
 - `fuelTrackerIntervals_v1` — per-vehicle intervals:
   `{ id:"i_...", vehicleId, title, distance, months }` (either may be 0)
 - `fuelTrackerSettings_v1` —
@@ -228,7 +240,9 @@ reads the scoped views `activeFills()` / `activeService()` / `activeIntervals()`
 exist, adopts orphaned fill-ups/service/intervals onto the first vehicle,
 seeds `DEFAULT_INTERVALS` (oil, tire rotation, engine + cabin air filter,
 brakes) for any vehicle with none, and fixes a missing/invalid activeVehicleId.
-It is idempotent — safe on every load.
+It also migrates legacy service records to the nested `items`/`parts` shape
+(old single `cost`/`parts` become one priced item; a part carries the item's
+cost so no money is lost). It is idempotent — safe on every load.
 
 **JSON is the only re-importable format.** Backup files are
 `{ data, settings, vehicles, service, intervals }`. The importer also accepts a
@@ -288,14 +302,21 @@ a much heavier lift than JSON import.
     `\u2014` typed into markup in `index.html` prints as the four characters
     `\u2014`, not an em dash. In `app.js` template literals it decodes fine.
     In static HTML use the entity (`&mdash;`) or the actual character.
-11. **"Up Next" due matching is by title, case-insensitive.** A logged service
-    only advances the interval whose `title` matches. "Oil change" vs "Oil &
-    filter" won't match — the suggestion chips exist to keep titles consistent.
-12. **Changing an input's `type` can silently drop it out of a CSS selector.**
+11. **"Up Next" due matching is by item title, case-insensitive.** An interval
+    advances if ANY item in a service entry matches its title, so one entry can
+    advance several intervals at once (brakes + rotors + filters in one visit).
+    "Oil change" vs "Oil & filter" still won't match — the interval chips exist
+    to keep item titles consistent.
+12. **Sum money with `sumCents()`, never a raw `reduce`.** Adding decimal part
+    prices produced `10.10 + 20.20 = 30.299999997`, which showed raw in the
+    computed item-cost field and got stored. Any place that totals prices/costs
+    must round to whole cents (or format through `fmtMoney`, which the entry
+    total does).
+13. **Changing an input's `type` can silently drop it out of a CSS selector.**
     `.field input[type=datetime-local]` stopped matching when the date field
     became `type=date`, so it lost all styling and iOS drew a default box. When
     you change a `type=`, grep `styles.css` for the old one.
-13. **Adding a spreadsheet column shifts every hard-coded column index.** The
+14. **Adding a spreadsheet column shifts every hard-coded column index.** The
     CSV/XLSX writers derive numeric-column indices from the header names
     (`headers.indexOf('Liters')` etc.), not fixed positions, so a new column
     can't silently mis-format another. Keep it that way.
