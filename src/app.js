@@ -66,6 +66,9 @@
   // A service entry can cover several items, each with its own cost. Older
   // records had a single title/cost/parts; these helpers read both shapes so
   // callers never branch. serviceItems() always returns a [{title,cost}] array.
+  // Sum money to whole cents, avoiding floating-point noise like 30.2999999.
+  function sumCents(nums){ return Math.round(nums.reduce((s,n)=> s + n, 0) * 100) / 100; }
+
   function serviceItems(rec){
     if(Array.isArray(rec.items) && rec.items.length){
       return rec.items.map(it => {
@@ -76,7 +79,7 @@
         ).filter(p => p.name || p.price) : [];
         // Item cost is the sum of its parts when it has any; otherwise the
         // directly-entered cost.
-        const cost = parts.length ? parts.reduce((s,p)=> s + p.price, 0) : (Number(it.cost)||0);
+        const cost = parts.length ? sumCents(parts.map(p=>p.price)) : (Number(it.cost)||0);
         return { title: String(it.title||'').trim(), cost, parts };
       });
     }
@@ -991,8 +994,8 @@
     const costInput = itemRow.querySelector('.item-cost');
     const prices = [...itemRow.querySelectorAll('.part-price')];
     if(prices.length){
-      const sum = prices.reduce((s,i)=> s + (Number(i.value)||0), 0);
-      costInput.value = sum ? sum : '';
+      const rounded = sumCents(prices.map(i=> Number(i.value)||0));
+      costInput.value = rounded ? rounded : '';
       costInput.readOnly = true;
       costInput.classList.add('computed');
     } else {
@@ -1064,7 +1067,7 @@
         price: Number(line.querySelector('.part-price').value) || 0,
       })).filter(p => p.name || p.price);
       const cost = parts.length
-        ? parts.reduce((s,p)=> s + p.price, 0)
+        ? sumCents(parts.map(p=>p.price))
         : (Number(row.querySelector('.item-cost').value) || 0);
       return { title: row.querySelector('.item-name').value.trim(), cost, parts };
     }).filter(it => it.title);   // drop blank rows
