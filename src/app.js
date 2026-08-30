@@ -62,6 +62,26 @@
   }
   function saveService(){ localStorage.setItem(SERVICE_KEY, JSON.stringify(allService)); }
   function saveIntervals(){ localStorage.setItem(INTERVALS_KEY, JSON.stringify(allIntervals)); }
+
+  // A service entry can cover several items, each with its own cost. Older
+  // records had a single title/cost/parts; these helpers read both shapes so
+  // callers never branch. serviceItems() always returns a [{title,cost}] array.
+  function serviceItems(rec){
+    if(Array.isArray(rec.items) && rec.items.length){
+      return rec.items.map(it => ({ title: String(it.title||'').trim(), cost: Number(it.cost)||0 }));
+    }
+    // Legacy fall-back (also covers a record mid-migration).
+    return [{ title: String(rec.title||'').trim(), cost: Number(rec.cost)||0 }];
+  }
+  function serviceCost(rec){ return serviceItems(rec).reduce((s,it)=> s + it.cost, 0); }
+  function serviceItemTitles(rec){ return serviceItems(rec).map(it=>it.title).filter(Boolean); }
+  // What to show as the entry's headline: its custom title, else the item list.
+  function serviceLabel(rec){
+    const t = String(rec.title||'').trim();
+    if(t) return t;
+    const items = serviceItemTitles(rec);
+    return items.length ? items.join(', ') : 'Service';
+  }
   function activeVehicle(){
     return vehicles.find(v => v.id === settings.activeVehicleId) || vehicles[0] || null;
   }
@@ -114,6 +134,18 @@
     let serviceDirty = false;
     for(const s of allService){
       if(!s.vehicleId || !known.has(s.vehicleId)){ s.vehicleId = vehicles[0].id; serviceDirty = true; }
+      // Migrate old single-item records to items[]. Preserve the old parts text
+      // by folding it into notes, since the Parts field is gone.
+      if(!Array.isArray(s.items)){
+        s.items = [{ title: String(s.title||'Service').trim(), cost: Number(s.cost)||0 }];
+        if(s.parts && String(s.parts).trim()){
+          s.notes = (s.notes ? s.notes + '\n' : '') + 'Parts: ' + String(s.parts).trim();
+        }
+        delete s.cost;
+        delete s.parts;
+        // Keep s.title as the entry's custom label (may equal the single item).
+        serviceDirty = true;
+      }
     }
     if(serviceDirty) saveService();
     // Seed default intervals for any vehicle that has none yet (new installs and
@@ -563,7 +595,8 @@
     const DAY = 86400000;
 
     return intervals.map(iv => {
-      const last = services.find(s => (s.title||'').trim().toLowerCase() === iv.title.trim().toLowerCase());
+      const ivKey = iv.title.trim().toLowerCase();
+      const last = services.find(s => serviceItemTitles(s).some(t => t.trim().toLowerCase() === ivKey));
       const r = { interval: iv, last: last || null,
                   dueDistance: null, distanceRemaining: null,
                   dueDate: null, daysRemaining: null,
@@ -625,8 +658,8 @@
     let html = titleRowHtml('Garage');
 
     // ----- Total spent (service + mods, this vehicle; fuel excluded) -----
-    const serviceTotal = service.filter(x=>x.kind==='service').reduce((s,x)=> s + (Number(x.cost)||0), 0);
-    const modTotal = service.filter(x=>x.kind==='mod').reduce((s,x)=> s + (Number(x.cost)||0), 0);
+    const serviceTotal = service.filter(x=>x.kind==='service').reduce((s,x)=> s + serviceCost(x), 0);
+    const modTotal = service.filter(x=>x.kind==='mod').reduce((s,x)=> s + serviceCost(x), 0);
     const totalSpent = serviceTotal + modTotal;
 
     html += `<div class="stat-grid" style="margin-top:4px;">
@@ -687,19 +720,25 @@
     } else {
       html += `<div class="list-card">` + shown.map(x=>{
         const unit = distUnitLabel();
+        const items = serviceItemTitles(x);
         const meta = [];
         if(x.odometer!=null && x.odometer!=='') meta.push(`${Math.round(Number(x.odometer)).toLocaleString()} ${unit}`);
-        if(x.parts) meta.push(escapeHtml(x.parts));
+        // If the entry has a custom title, list its items here; if it has no
+        // title (so the headline already *is* the item list), show a count for
+        // multi-item entries instead of repeating the names.
+        if(x.title && x.title.trim() && items.length) meta.push(escapeHtml(items.join(', ')));
+        else if(items.length > 1) meta.push(`${items.length} items`);
         const tag = x.kind==='mod' ? `<span class="kind-tag mod">Mod</span>` : `<span class="kind-tag svc">Service</span>`;
+        const total = serviceCost(x);
         return `
           <div class="list-row tappable" data-sid="${x.id}">
             <div class="badge round" style="background:color-mix(in srgb, ${x.kind==='mod'?'var(--purple)':'var(--blue)'} 16%, transparent); color:${x.kind==='mod'?'var(--purple)':'var(--blue)'};">${icon(x.kind==='mod'?'sliders':'wrench',16,2)}</div>
             <div class="row-main">
-              <div class="row-title">${escapeHtml(x.title || 'Service')} ${tag}</div>
+              <div class="row-title">${escapeHtml(serviceLabel(x))} ${tag}</div>
               <div class="row-sub">${fmtShortDate(x.date)}${meta.length?' · '+meta.join(' · '):''}</div>
             </div>
             <div class="row-right">
-              <div class="row-amount">${x.cost ? fmtMoney(x.cost) : '—'}</div>
+              <div class="row-amount">${total ? fmtMoney(total) : '—'}</div>
               <span class="chevron">${icon('chevron',16,2.2)}</span>
             </div>
           </div>`;
@@ -885,27 +924,76 @@
   }
 
   function validateService(){
-    const title = document.getElementById('s-title').value.trim();
-    document.getElementById('service-save').disabled = !title;
+    // Save is enabled when at least one item has a name.
+    const anyNamed = [...document.querySelectorAll('#service-items .item-name')]
+      .some(inp => inp.value.trim());
+    document.getElementById('service-save').disabled = !anyNamed;
   }
 
-  // Suggestions come from the vehicle's interval titles plus titles already used.
-  function renderServiceSuggest(){
-    const row = document.getElementById('service-suggest');
-    const input = document.getElementById('s-title');
-    const typed = input.value.trim().toLowerCase();
-    const names = new Set();
-    activeIntervals().forEach(i=> names.add(i.title));
-    activeService().forEach(s=> { if(s.title) names.add(s.title); });
-    const matches = [...names]
-      .filter(n=> !typed || (n.toLowerCase().includes(typed) && n.toLowerCase() !== typed))
-      .slice(0,6);
-    if(!matches.length){ row.hidden = true; row.innerHTML=''; return; }
-    row.hidden = false;
-    row.innerHTML = matches.map(n=>`<button type="button" class="suggest-chip">${escapeHtml(n)}</button>`).join('');
-    row.querySelectorAll('.suggest-chip').forEach((btn,i)=>{
-      btn.addEventListener('click', ()=>{ input.value = matches[i]; validateService(); renderServiceSuggest(); });
+  // Sum the item cost fields into the live total, and refresh the quick-add
+  // chips (an interval already present as an item drops out of the chip row).
+  function recomputeServiceTotal(){
+    let total = 0;
+    document.querySelectorAll('#service-items .item-cost').forEach(inp=>{
+      total += Number(inp.value) || 0;
     });
+    const el = document.getElementById('s-total');
+    el.textContent = total > 0 ? fmtMoney(total) : fmtMoney(0);
+  }
+
+  function currentItemNames(){
+    return [...document.querySelectorAll('#service-items .item-name')]
+      .map(i=>i.value.trim().toLowerCase()).filter(Boolean);
+  }
+
+  // Quick-add chips: interval titles not already added as an item row.
+  function renderServiceItemChips(){
+    const row = document.getElementById('service-item-chips');
+    const have = new Set(currentItemNames());
+    const chips = activeIntervals().map(i=>i.title).filter(t=> !have.has(t.trim().toLowerCase()));
+    if(!chips.length){ row.hidden = true; row.innerHTML = ''; return; }
+    row.hidden = false;
+    row.innerHTML = chips.map(t=>`<button type="button" class="suggest-chip">${escapeHtml(t)}</button>`).join('');
+    row.querySelectorAll('.suggest-chip').forEach((btn,i)=>{
+      btn.addEventListener('click', ()=> addItemRow(chips[i], '', true));
+    });
+  }
+
+  function addItemRow(title, cost, focusCost){
+    const wrap = document.getElementById('service-items');
+    const div = document.createElement('div');
+    div.className = 'item-row';
+    div.innerHTML = `
+      <input type="text" class="item-name" placeholder="Item" autocapitalize="words" autocomplete="off">
+      <input type="number" class="item-cost" inputmode="decimal" placeholder="0.00">
+      <button type="button" class="item-remove" aria-label="Remove item">${icon('trash',18,2)}</button>`;
+    div.querySelector('.item-name').value = title || '';
+    div.querySelector('.item-cost').value = (cost===0||cost) ? cost : '';
+    wrap.appendChild(div);
+
+    div.querySelector('.item-name').addEventListener('input', ()=>{ validateService(); renderServiceItemChips(); });
+    div.querySelector('.item-cost').addEventListener('input', recomputeServiceTotal);
+    div.querySelector('.item-remove').addEventListener('click', ()=>{
+      div.remove(); validateService(); recomputeServiceTotal(); renderServiceItemChips();
+    });
+    renderServiceItemChips();
+    recomputeServiceTotal();
+    validateService();
+    if(focusCost) div.querySelector('.item-cost').focus();
+    else div.querySelector('.item-name').focus();
+  }
+
+  function setServiceItems(items){
+    const wrap = document.getElementById('service-items');
+    wrap.innerHTML = '';
+    (items && items.length ? items : [{title:'',cost:''}]).forEach(it=> addItemRow(it.title, it.cost, false));
+  }
+
+  function readServiceItems(){
+    return [...document.querySelectorAll('#service-items .item-row')].map(row=>({
+      title: row.querySelector('.item-name').value.trim(),
+      cost: Number(row.querySelector('.item-cost').value) || 0,
+    })).filter(it => it.title);   // drop blank rows
   }
 
   function openServiceAdd(){
@@ -915,11 +1003,11 @@
     document.getElementById('s-title').value = '';
     document.getElementById('s-date').value = toLocalInputValue(new Date());
     document.getElementById('s-odo').value = '';
-    document.getElementById('s-cost').value = '';
-    document.getElementById('s-parts').value = '';
     document.getElementById('s-notes').value = '';
+    setServiceItems([{title:'',cost:''}]);
     document.getElementById('service-delete').style.display = 'none';
-    renderServiceSuggest();
+    renderServiceItemChips();
+    recomputeServiceTotal();
     validateService();
     openSheet(serviceSheet);
   }
@@ -933,29 +1021,28 @@
     document.getElementById('s-title').value = x.title || '';
     document.getElementById('s-date').value = x.date ? toLocalInputValue(new Date(x.date)) : toLocalInputValue(new Date());
     document.getElementById('s-odo').value = (x.odometer==null||x.odometer==='') ? '' : x.odometer;
-    document.getElementById('s-cost').value = x.cost || '';
-    document.getElementById('s-parts').value = x.parts || '';
     document.getElementById('s-notes').value = x.notes || '';
+    setServiceItems(serviceItems(x));
     document.getElementById('service-delete').style.display = '';
-    renderServiceSuggest();
+    renderServiceItemChips();
+    recomputeServiceTotal();
     validateService();
     openSheet(serviceSheet);
   }
 
   function saveServiceRecord(){
-    const title = document.getElementById('s-title').value.trim();
-    if(!title) return;
+    const items = readServiceItems();
+    if(!items.length) return;   // need at least one named item
     const odoRaw = document.getElementById('s-odo').value;
     const existing = editingServiceId ? allService.find(s=>s.id===editingServiceId) : null;
     const rec = {
       id: editingServiceId || newId('s_'),
       vehicleId: (existing && existing.vehicleId) || settings.activeVehicleId,
       kind: serviceKind,
-      title,
+      title: document.getElementById('s-title').value.trim(),
       date: fromLocalInputValue(document.getElementById('s-date').value).toISOString(),
       odometer: odoRaw === '' ? null : Number(odoRaw),
-      cost: Number(document.getElementById('s-cost').value) || 0,
-      parts: document.getElementById('s-parts').value.trim(),
+      items,
       notes: document.getElementById('s-notes').value.trim(),
     };
     if(editingServiceId){
@@ -985,7 +1072,7 @@
   document.getElementById('service-cancel').addEventListener('click', closeSheets);
   document.getElementById('service-save').addEventListener('click', saveServiceRecord);
   document.getElementById('service-delete').addEventListener('click', deleteServiceRecord);
-  document.getElementById('s-title').addEventListener('input', ()=>{ validateService(); renderServiceSuggest(); });
+  document.getElementById('service-add-item').addEventListener('click', ()=> addItemRow('', '', false));
   document.querySelectorAll('#service-kind .seg').forEach(btn=>{
     btn.addEventListener('click', ()=> setServiceKind(btn.dataset.k));
   });
@@ -1418,21 +1505,28 @@
   function serviceRows(){
     const cur = settings.currency || 'USD';
     const distUnit = settings.distanceUnit === 'mi' ? 'mi' : 'km';
-    const headers = ['Vehicle','Type','Item','Date',`Cost (${cur})`,`Odometer (${distUnit})`,'Parts','Notes'];
-    const rows = allService.slice()
+    const headers = ['Vehicle','Type','Title','Item','Date',`Cost (${cur})`,`Odometer (${distUnit})`,'Notes'];
+    // One row per item, so per-item spend is pivotable in the spreadsheet.
+    const rows = [];
+    allService.slice()
       .sort((a,b)=>
         vehicleName(a.vehicleId).localeCompare(vehicleName(b.vehicleId))
         || new Date(a.date) - new Date(b.date))
-      .map(s=>[
-        vehicleName(s.vehicleId),
-        s.kind === 'mod' ? 'Modification' : 'Service',
-        s.title || '',
-        fmtDateForSheet(s.date),
-        Number(s.cost) || 0,
-        (s.odometer === null || s.odometer === undefined || s.odometer === '') ? '' : Number(s.odometer),
-        s.parts || '',
-        s.notes || '',
-      ]);
+      .forEach(s=>{
+        const odo = (s.odometer === null || s.odometer === undefined || s.odometer === '') ? '' : Number(s.odometer);
+        serviceItems(s).forEach(it=>{
+          rows.push([
+            vehicleName(s.vehicleId),
+            s.kind === 'mod' ? 'Modification' : 'Service',
+            s.title || '',
+            it.title,
+            fmtDateForSheet(s.date),
+            Number(it.cost) || 0,
+            odo,
+            s.notes || '',
+          ]);
+        });
+      });
     return {headers, rows};
   }
 
@@ -1642,7 +1736,7 @@
     const svcStyle = {};
     svcStyle[svc.headers.findIndex(h=>h.startsWith('Cost'))] = 2;
     svcStyle[svc.headers.findIndex(h=>h.startsWith('Odometer'))] = 4;
-    const svcSheet = worksheetXml(svc.headers, svc.rows, [18,14,22,14,14,14,28,32], svcStyle);
+    const svcSheet = worksheetXml(svc.headers, svc.rows, [18,14,22,22,14,14,14,32], svcStyle);
 
     const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">

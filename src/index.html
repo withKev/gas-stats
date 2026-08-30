@@ -167,10 +167,9 @@
 
   <div class="field-group">
     <div class="field">
-      <label for="s-title">Item</label>
-      <input type="text" id="s-title" placeholder="e.g. Oil change" autocomplete="off" autocapitalize="words">
+      <label for="s-title">Title</label>
+      <input type="text" id="s-title" placeholder="optional, e.g. Big brake service" autocomplete="off" autocapitalize="words">
     </div>
-    <div class="suggest-row" id="service-suggest" hidden></div>
     <div class="field">
       <label for="s-date">Date</label>
       <input type="date" id="s-date">
@@ -179,15 +178,14 @@
       <label for="s-odo">Odometer</label>
       <input type="number" id="s-odo" inputmode="numeric" placeholder="optional">
     </div>
-    <div class="field">
-      <label for="s-cost">Cost</label>
-      <input type="number" id="s-cost" inputmode="decimal" placeholder="0.00">
-    </div>
-    <div class="field">
-      <label for="s-parts">Parts</label>
-      <input type="text" id="s-parts" placeholder="optional, e.g. Mobil 1 5W-30">
-    </div>
   </div>
+
+  <div class="sheet-label">Items</div>
+  <div class="suggest-row" id="service-item-chips"></div>
+  <div id="service-items"></div>
+  <button class="add-item-btn" id="service-add-item">+ Add item</button>
+  <div class="items-total" id="service-total-row"><span>Total</span><span id="s-total">—</span></div>
+
   <div class="field-group">
     <div class="field field-stacked">
       <label for="s-notes">Notes</label>
