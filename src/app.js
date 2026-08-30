@@ -68,10 +68,20 @@
   // callers never branch. serviceItems() always returns a [{title,cost}] array.
   function serviceItems(rec){
     if(Array.isArray(rec.items) && rec.items.length){
-      return rec.items.map(it => ({ title: String(it.title||'').trim(), cost: Number(it.cost)||0 }));
+      return rec.items.map(it => {
+        const parts = Array.isArray(it.parts) ? it.parts.map(p =>
+          (typeof p === 'string')
+            ? { name: p.trim(), price: 0 }
+            : { name: String(p.name||'').trim(), price: Number(p.price)||0 }
+        ).filter(p => p.name || p.price) : [];
+        // Item cost is the sum of its parts when it has any; otherwise the
+        // directly-entered cost.
+        const cost = parts.length ? parts.reduce((s,p)=> s + p.price, 0) : (Number(it.cost)||0);
+        return { title: String(it.title||'').trim(), cost, parts };
+      });
     }
     // Legacy fall-back (also covers a record mid-migration).
-    return [{ title: String(rec.title||'').trim(), cost: Number(rec.cost)||0 }];
+    return [{ title: String(rec.title||'').trim(), cost: Number(rec.cost)||0, parts: [] }];
   }
   function serviceCost(rec){ return serviceItems(rec).reduce((s,it)=> s + it.cost, 0); }
   function serviceItemTitles(rec){ return serviceItems(rec).map(it=>it.title).filter(Boolean); }
@@ -134,17 +144,30 @@
     let serviceDirty = false;
     for(const s of allService){
       if(!s.vehicleId || !known.has(s.vehicleId)){ s.vehicleId = vehicles[0].id; serviceDirty = true; }
-      // Migrate old single-item records to items[]. Preserve the old parts text
-      // by folding it into notes, since the Parts field is gone.
+      // Migrate old single-item records to items[]. Old free-text parts become a
+      // single priced part carrying the whole item cost (best guess; editable).
       if(!Array.isArray(s.items)){
-        s.items = [{ title: String(s.title||'Service').trim(), cost: Number(s.cost)||0 }];
-        if(s.parts && String(s.parts).trim()){
-          s.notes = (s.notes ? s.notes + '\n' : '') + 'Parts: ' + String(s.parts).trim();
-        }
+        const cost = Number(s.cost)||0;
+        const parts = (s.parts && String(s.parts).trim())
+          ? [{ name: String(s.parts).trim(), price: cost }]
+          : [];
+        s.items = [{ title: String(s.title||'Service').trim(), cost, parts }];
         delete s.cost;
         delete s.parts;
         // Keep s.title as the entry's custom label (may equal the single item).
         serviceDirty = true;
+      }
+      // Follow-on for records already migrated by an earlier build that folded
+      // parts into notes as a trailing "Parts: X" line. Pull it back into the
+      // (single) item's parts, giving the part the item's cost so no money is
+      // lost when cost switches to the parts sum.
+      if(Array.isArray(s.items) && s.items.length === 1 && !(s.items[0].parts && s.items[0].parts.length) && s.notes){
+        const m = s.notes.match(/(^|\n)Parts: (.+)$/);
+        if(m){
+          s.items[0].parts = [{ name: m[2].trim(), price: Number(s.items[0].cost)||0 }];
+          s.notes = s.notes.slice(0, m.index).replace(/\n$/,'');
+          serviceDirty = true;
+        }
       }
     }
     if(serviceDirty) saveService();
@@ -934,11 +957,13 @@
   // chips (an interval already present as an item drops out of the chip row).
   function recomputeServiceTotal(){
     let total = 0;
-    document.querySelectorAll('#service-items .item-cost').forEach(inp=>{
-      total += Number(inp.value) || 0;
+    document.querySelectorAll('#service-items .item-row').forEach(row=>{
+      const prices = [...row.querySelectorAll('.part-price')];
+      total += prices.length
+        ? prices.reduce((s,i)=> s + (Number(i.value)||0), 0)
+        : (Number(row.querySelector('.item-cost').value) || 0);
     });
-    const el = document.getElementById('s-total');
-    el.textContent = total > 0 ? fmtMoney(total) : fmtMoney(0);
+    document.getElementById('s-total').textContent = fmtMoney(total > 0 ? total : 0);
   }
 
   function currentItemNames(){
@@ -955,20 +980,61 @@
     row.hidden = false;
     row.innerHTML = chips.map(t=>`<button type="button" class="suggest-chip">${escapeHtml(t)}</button>`).join('');
     row.querySelectorAll('.suggest-chip').forEach((btn,i)=>{
-      btn.addEventListener('click', ()=> addItemRow(chips[i], '', true));
+      btn.addEventListener('click', ()=> addItemRow(chips[i], '', [], true));
     });
   }
 
-  function addItemRow(title, cost, focusCost){
+  // When an item has any part lines, its cost is the sum of the part prices and
+  // the item-cost field becomes a read-only total. With no parts, the field is
+  // directly editable.
+  function syncItemCost(itemRow){
+    const costInput = itemRow.querySelector('.item-cost');
+    const prices = [...itemRow.querySelectorAll('.part-price')];
+    if(prices.length){
+      const sum = prices.reduce((s,i)=> s + (Number(i.value)||0), 0);
+      costInput.value = sum ? sum : '';
+      costInput.readOnly = true;
+      costInput.classList.add('computed');
+    } else {
+      costInput.readOnly = false;
+      costInput.classList.remove('computed');
+    }
+  }
+
+  function addPartLine(itemRow, name, price, focus){
+    const partsWrap = itemRow.querySelector('.item-parts');
+    const line = document.createElement('div');
+    line.className = 'part-line';
+    line.innerHTML = `
+      <input type="text" class="part-name" placeholder="Part name or number" autocomplete="off">
+      <input type="number" class="part-price" inputmode="decimal" placeholder="0.00">
+      <button type="button" class="part-remove" aria-label="Remove part">${icon('trash',16,2)}</button>`;
+    line.querySelector('.part-name').value = name || '';
+    line.querySelector('.part-price').value = (price===0||price) ? price : '';
+    partsWrap.appendChild(line);
+    line.querySelector('.part-price').addEventListener('input', ()=>{ syncItemCost(itemRow); recomputeServiceTotal(); });
+    line.querySelector('.part-remove').addEventListener('click', ()=>{
+      line.remove(); syncItemCost(itemRow); recomputeServiceTotal();
+    });
+    syncItemCost(itemRow);
+    if(focus) line.querySelector('.part-name').focus();
+  }
+
+  function addItemRow(title, cost, parts, focusCost){
     const wrap = document.getElementById('service-items');
     const div = document.createElement('div');
     div.className = 'item-row';
     div.innerHTML = `
-      <input type="text" class="item-name" placeholder="Item" autocapitalize="words" autocomplete="off">
-      <input type="number" class="item-cost" inputmode="decimal" placeholder="0.00">
-      <button type="button" class="item-remove" aria-label="Remove item">${icon('trash',18,2)}</button>`;
+      <div class="item-head">
+        <input type="text" class="item-name" placeholder="Item" autocapitalize="words" autocomplete="off">
+        <input type="number" class="item-cost" inputmode="decimal" placeholder="0.00">
+        <button type="button" class="item-remove" aria-label="Remove item">${icon('trash',18,2)}</button>
+      </div>
+      <div class="item-parts"></div>
+      <button type="button" class="add-part-btn">+ Add part</button>`;
     div.querySelector('.item-name').value = title || '';
     div.querySelector('.item-cost').value = (cost===0||cost) ? cost : '';
+    (parts||[]).forEach(p=> addPartLine(div, p.name, p.price, false));
     wrap.appendChild(div);
 
     div.querySelector('.item-name').addEventListener('input', ()=>{ validateService(); renderServiceItemChips(); });
@@ -976,6 +1042,8 @@
     div.querySelector('.item-remove').addEventListener('click', ()=>{
       div.remove(); validateService(); recomputeServiceTotal(); renderServiceItemChips();
     });
+    div.querySelector('.add-part-btn').addEventListener('click', ()=> addPartLine(div, '', '', true));
+    syncItemCost(div);
     renderServiceItemChips();
     recomputeServiceTotal();
     validateService();
@@ -986,14 +1054,20 @@
   function setServiceItems(items){
     const wrap = document.getElementById('service-items');
     wrap.innerHTML = '';
-    (items && items.length ? items : [{title:'',cost:''}]).forEach(it=> addItemRow(it.title, it.cost, false));
+    (items && items.length ? items : [{title:'',cost:'',parts:[]}]).forEach(it=> addItemRow(it.title, it.cost, it.parts, false));
   }
 
   function readServiceItems(){
-    return [...document.querySelectorAll('#service-items .item-row')].map(row=>({
-      title: row.querySelector('.item-name').value.trim(),
-      cost: Number(row.querySelector('.item-cost').value) || 0,
-    })).filter(it => it.title);   // drop blank rows
+    return [...document.querySelectorAll('#service-items .item-row')].map(row=>{
+      const parts = [...row.querySelectorAll('.part-line')].map(line=>({
+        name: line.querySelector('.part-name').value.trim(),
+        price: Number(line.querySelector('.part-price').value) || 0,
+      })).filter(p => p.name || p.price);
+      const cost = parts.length
+        ? parts.reduce((s,p)=> s + p.price, 0)
+        : (Number(row.querySelector('.item-cost').value) || 0);
+      return { title: row.querySelector('.item-name').value.trim(), cost, parts };
+    }).filter(it => it.title);   // drop blank rows
   }
 
   function openServiceAdd(){
@@ -1072,7 +1146,7 @@
   document.getElementById('service-cancel').addEventListener('click', closeSheets);
   document.getElementById('service-save').addEventListener('click', saveServiceRecord);
   document.getElementById('service-delete').addEventListener('click', deleteServiceRecord);
-  document.getElementById('service-add-item').addEventListener('click', ()=> addItemRow('', '', false));
+  document.getElementById('service-add-item').addEventListener('click', ()=> addItemRow('', '', [], false));
   document.querySelectorAll('#service-kind .seg').forEach(btn=>{
     btn.addEventListener('click', ()=> setServiceKind(btn.dataset.k));
   });
@@ -1505,7 +1579,7 @@
   function serviceRows(){
     const cur = settings.currency || 'USD';
     const distUnit = settings.distanceUnit === 'mi' ? 'mi' : 'km';
-    const headers = ['Vehicle','Type','Title','Item','Date',`Cost (${cur})`,`Odometer (${distUnit})`,'Notes'];
+    const headers = ['Vehicle','Type','Title','Item','Part',`Cost (${cur})`,`Odometer (${distUnit})`,'Date','Notes'];
     // One row per item, so per-item spend is pivotable in the spreadsheet.
     const rows = [];
     allService.slice()
@@ -1520,9 +1594,10 @@
             s.kind === 'mod' ? 'Modification' : 'Service',
             s.title || '',
             it.title,
-            fmtDateForSheet(s.date),
+            (it.parts||[]).map(p=>p.name).filter(Boolean).join('; '),
             Number(it.cost) || 0,
             odo,
+            fmtDateForSheet(s.date),
             s.notes || '',
           ]);
         });
@@ -1736,7 +1811,7 @@
     const svcStyle = {};
     svcStyle[svc.headers.findIndex(h=>h.startsWith('Cost'))] = 2;
     svcStyle[svc.headers.findIndex(h=>h.startsWith('Odometer'))] = 4;
-    const svcSheet = worksheetXml(svc.headers, svc.rows, [18,14,22,22,14,14,14,32], svcStyle);
+    const svcSheet = worksheetXml(svc.headers, svc.rows, [18,14,22,22,24,14,14,14,32], svcStyle);
 
     const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
