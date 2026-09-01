@@ -472,7 +472,7 @@
       html += `<div class="section-header"><span>${g.label}</span><span class="month-meta">${bits.join(' · ')}</span></div><div class="list-card">`;
       g.items.forEach(item=>{
         const meta = GRADE_META[item.grade] || GRADE_META['Regular'];
-        const sub = item.location || new Date(item.date).toLocaleDateString();
+        const sub = item.location || fmtShortDate(item.date);
 
         // Compact detail line: only the fields we actually have. Odometer and
         // price/L come straight off the fill-up; distance and efficiency are
