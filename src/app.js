@@ -444,7 +444,7 @@
       <div class="section-header">This Month vs Year</div>
       <div class="stat-grid">
         <div class="stat-card">${badge('color-mix(in srgb, var(--orange) 16%, transparent)','calendar',32,16)}<div class="stat-value" style="color:var(--orange);">${fmtMoney(monthTotal)}</div><div class="stat-label">This Month</div></div>
-        <div class="stat-card"><div class="stat-card-head">${badge('color-mix(in srgb, var(--blue) 16%, transparent)','calendar',32,16)}<select class="year-select" id="dash-year" aria-label="Select year">${years.map(y=>`<option value="${y}" ${y===dashYear?'selected':''}>${y===currentYear ? y+' YTD' : y}</option>`).join('')}</select></div><div class="stat-value" style="color:var(--blue);">${fmtMoney(yearTotal)}</div><div class="stat-label">${dashYear===currentYear ? 'Year to Date' : 'Total spent'}</div></div>
+        <div class="stat-card"><div class="stat-card-head">${badge('color-mix(in srgb, var(--blue) 16%, transparent)','calendar',32,16)}<select class="year-select" id="dash-year" aria-label="Select year">${years.map(y=>`<option value="${y}" ${y===dashYear?'selected':''}>${y}</option>`).join('')}</select></div><div class="stat-value" style="color:var(--blue);">${fmtMoney(yearTotal)}</div><div class="stat-label">${dashYear===currentYear ? 'Year to Date' : 'Total spent'}</div></div>
       </div>
       <div class="stat-grid" style="margin-top:10px;">
         <div class="stat-card">${badge('color-mix(in srgb, var(--purple) 16%, transparent)','drop',32,16)}<div class="stat-value" style="color:var(--purple);">${fmtMoney(avgPrice)}</div><div class="stat-label">Avg Price / L</div></div>
