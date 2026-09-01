@@ -313,6 +313,26 @@
   }
   .stat-card .stat-value{ font-size:20px; font-weight:700; margin-top:10px; font-variant-numeric:tabular-nums; }
   .stat-card .stat-label{ font-size:12px; color:var(--text-tertiary); margin-top:2px; }
+  /* Avg Consumption card: badge + label header, then two economy stats. */
+  .econ-card .econ-head{ display:flex; align-items:center; gap:10px; }
+  .econ-card .econ-head .stat-label{ margin-top:0; }
+  .econ-values{ display:flex; margin-top:12px; }
+  .econ-item{ flex:1; text-align:center; }
+  .econ-item + .econ-item{ border-left:0.5px solid var(--sep); }
+  .econ-card .stat-value{ margin-top:0; color:var(--green); }
+  .econ-unit{ font-size:12px; color:var(--text-tertiary); margin-top:2px; }
+  /* Year dropdown living on the dashboard spend card. Sits on the badge row,
+     styled as quiet text + chevron rather than a heavy form control. */
+  .stat-card-head{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .year-select{
+    -webkit-appearance:none; appearance:none; border:none; background:transparent;
+    font-family:inherit; font-size:13px; font-weight:590; color:var(--text-secondary);
+    padding:2px 16px 2px 6px; margin:0; min-height:28px; border-radius:8px;
+    background-image:linear-gradient(45deg,transparent 50%,var(--text-tertiary) 50%),linear-gradient(135deg,var(--text-tertiary) 50%,transparent 50%);
+    background-position:calc(100% - 6px) 12px,calc(100% - 2px) 12px;
+    background-size:4px 4px,4px 4px; background-repeat:no-repeat;
+  }
+  .year-select:active{ background-color:var(--fill-tertiary); }
 
   .chart-card{
     background:var(--glass); border-radius:18px; padding:14px; margin:0 16px 12px;

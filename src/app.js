@@ -87,7 +87,12 @@
     return [{ title: String(rec.title||'').trim(), cost: Number(rec.cost)||0, parts: [] }];
   }
   function serviceCost(rec){ return serviceItems(rec).reduce((s,it)=> s + it.cost, 0); }
-  function serviceItemTitles(rec){ return serviceItems(rec).map(it=>it.title).filter(Boolean); }
+  // Where/who: shop name if named, else 'Shop'/'DIY'; empty when unspecified (old records).
+  function doneByLabel(rec){
+    if(rec.doneBy === 'shop') return (rec.shop && rec.shop.trim()) ? rec.shop.trim() : 'Shop';
+    if(rec.doneBy === 'diy') return 'DIY';
+    return '';
+  }  function serviceItemTitles(rec){ return serviceItems(rec).map(it=>it.title).filter(Boolean); }
   // What to show as the entry's headline: its custom title, else the item list.
   function serviceLabel(rec){
     const t = String(rec.title||'').trim();
@@ -316,6 +321,7 @@
 
   // ---------- Tabs ----------
   let activeTab = 'dashboard';
+  let dashYear = new Date().getFullYear();   // which year the dashboard spend card shows
   const navbarTitle = document.getElementById('navbar-title');
   const main = document.getElementById('main');
   const navbar = document.getElementById('navbar');
@@ -405,11 +411,17 @@
 
     const last = all[0];
     const now = new Date();
+    const currentYear = now.getFullYear();
     const monthTotal = data.filter(d=>{
       const dt = new Date(d.date);
       return dt.getFullYear() === now.getFullYear() && dt.getMonth() === now.getMonth();
     }).reduce((s,d)=> s + (d.totalCost||0), 0);
-    const ytdTotal = data.filter(d=> new Date(d.date).getFullYear() === now.getFullYear())
+    // Years that have fill-ups (this vehicle), newest first, plus the current
+    // year so you can always land on "this year" even before logging in it.
+    const years = [...new Set(data.map(d=> new Date(d.date).getFullYear()).concat(currentYear))]
+      .sort((a,b)=> b - a);
+    if(!years.includes(dashYear)) dashYear = currentYear;   // clamp if the selected year vanished
+    const yearTotal = data.filter(d=> new Date(d.date).getFullYear() === dashYear)
       .reduce((s,d)=> s + (d.totalCost||0), 0);
     const avgPrice = data.reduce((s,d)=> s + (d.pricePerLiter||0), 0) / data.length;
     const economy = computeEconomy();
@@ -430,7 +442,7 @@
       <div class="section-header">This Month vs Year</div>
       <div class="stat-grid">
         <div class="stat-card">${badge('color-mix(in srgb, var(--orange) 16%, transparent)','calendar',32,16)}<div class="stat-value" style="color:var(--orange);">${fmtMoney(monthTotal)}</div><div class="stat-label">This Month</div></div>
-        <div class="stat-card">${badge('color-mix(in srgb, var(--blue) 16%, transparent)','calendar',32,16)}<div class="stat-value" style="color:var(--blue);">${fmtMoney(ytdTotal)}</div><div class="stat-label">Year to Date</div></div>
+        <div class="stat-card"><div class="stat-card-head">${badge('color-mix(in srgb, var(--blue) 16%, transparent)','calendar',32,16)}<select class="year-select" id="dash-year" aria-label="Select year">${years.map(y=>`<option value="${y}" ${y===dashYear?'selected':''}>${y===currentYear ? y+' YTD' : y}</option>`).join('')}</select></div><div class="stat-value" style="color:var(--blue);">${fmtMoney(yearTotal)}</div><div class="stat-label">${dashYear===currentYear ? 'Year to Date' : 'Total spent'}</div></div>
       </div>
       <div class="stat-grid" style="margin-top:10px;">
         <div class="stat-card">${badge('color-mix(in srgb, var(--purple) 16%, transparent)','drop',32,16)}<div class="stat-value" style="color:var(--purple);">${fmtMoney(avgPrice)}</div><div class="stat-label">Avg Price / L</div></div>
@@ -495,6 +507,9 @@
     });
 
     main.innerHTML = html;
+
+    const yearSel = document.getElementById('dash-year');
+    if(yearSel) yearSel.addEventListener('change', ()=>{ dashYear = parseInt(yearSel.value,10); renderDashboard(); wireVehicleBar(); });
 
     main.querySelectorAll('.list-row[data-id]').forEach(row=>{
       row.addEventListener('click', ()=> openEdit(row.dataset.id));
@@ -742,19 +757,27 @@
     const serviceTotal = service.filter(x=>x.kind==='service').reduce((s,x)=> s + serviceCost(x), 0);
     const modTotal = service.filter(x=>x.kind==='mod').reduce((s,x)=> s + serviceCost(x), 0);
     const totalSpent = serviceTotal + modTotal;
+    const currentYear = new Date().getFullYear();
+    const thisYearSpent = service.filter(x=> new Date(x.date).getFullYear() === currentYear)
+      .reduce((s,x)=> s + serviceCost(x), 0);
 
     html += `<div class="stat-grid" style="margin-top:4px;">
-      <div class="stat-card" style="grid-column:1/3;">
+      <div class="stat-card">
+        ${badge('color-mix(in srgb, var(--orange) 16%, transparent)','calendar',32,16)}
+        <div class="stat-value" style="color:var(--orange);">${fmtMoney(thisYearSpent)}</div>
+        <div class="stat-label">This Year</div>
+      </div>
+      <div class="stat-card">
         ${badge('color-mix(in srgb, var(--blue) 16%, transparent)','card',32,16)}
-        <div class="stat-value">${fmtMoney(totalSpent)}</div>
-        <div class="stat-label">Total spent on service &amp; mods</div>
+        <div class="stat-value" style="color:var(--blue);">${fmtMoney(totalSpent)}</div>
+        <div class="stat-label">All Time</div>
       </div>
     </div>
     <div class="stat-grid" style="margin-top:12px;">
       <div class="stat-card">
         ${badge('color-mix(in srgb, var(--blue) 16%, transparent)','wrench',32,16)}
         <div class="stat-value" style="color:var(--blue);">${fmtMoney(serviceTotal)}</div>
-        <div class="stat-label">Service</div>
+        <div class="stat-label">Maintenance</div>
       </div>
       <div class="stat-card">
         ${badge('color-mix(in srgb, var(--purple) 16%, transparent)','sliders',32,16)}
@@ -793,11 +816,12 @@
 
     html += `<div class="section-header" style="margin-top:20px;">History</div>
       <div class="seg-control" id="garage-filter">
-        ${['all','service','mod'].map(f=>`<button class="seg${filter===f?' active':''}" data-f="${f}">${f==='all'?'All':f==='service'?'Service':'Mods'}</button>`).join('')}
+        ${['all','service','mod'].map(f=>`<button class="seg${filter===f?' active':''}" data-f="${f}">${f==='all'?'All':f==='service'?'Maintenance':'Mods'}</button>`).join('')}
       </div>`;
 
     if(!shown.length){
-      html += `<div class="list-card"><div class="empty-inline">No ${filter==='all'?'':filter+' '}entries yet. Tap + to add one.</div></div>`;
+      const emptyWord = filter==='all' ? '' : (filter==='service' ? 'maintenance ' : 'mod ');
+      html += `<div class="list-card"><div class="empty-inline">No ${emptyWord}entries yet. Tap + to add one.</div></div>`;
     } else {
       html += `<div class="list-card">` + shown.map(x=>{
         const unit = distUnitLabel();
@@ -809,7 +833,9 @@
         // multi-item entries instead of repeating the names.
         if(x.title && x.title.trim() && items.length) meta.push(escapeHtml(items.join(', ')));
         else if(items.length > 1) meta.push(`${items.length} items`);
-        const tag = x.kind==='mod' ? `<span class="kind-tag mod">Mod</span>` : `<span class="kind-tag svc">Service</span>`;
+        const by = doneByLabel(x);
+        if(by) meta.push(escapeHtml(by));
+        const tag = x.kind==='mod' ? `<span class="kind-tag mod">Mod</span>` : `<span class="kind-tag svc">Maintenance</span>`;
         const total = serviceCost(x);
         return `
           <div class="list-row tappable" data-sid="${x.id}">
@@ -847,12 +873,9 @@
       return;
     }
     const now = new Date();
-    const ytdTotal = data.filter(d=> new Date(d.date).getFullYear() === now.getFullYear())
+    const allTimeTotal = data.reduce((s,d)=> s + (d.totalCost||0), 0);
+    const thisYearTotal = data.filter(d=> new Date(d.date).getFullYear() === now.getFullYear())
       .reduce((s,d)=> s + (d.totalCost||0), 0);
-    const monthTotal = data.filter(d=>{
-      const dt = new Date(d.date);
-      return dt.getFullYear() === now.getFullYear() && dt.getMonth() === now.getMonth();
-    }).reduce((s,d)=> s + (d.totalCost||0), 0);
     const avgFillUp = data.reduce((s,d)=> s + (d.totalCost||0), 0) / data.length;
     const avgPrice = data.reduce((s,d)=> s + (d.pricePerLiter||0), 0) / data.length;
     const totalLiters = data.reduce((s,d)=> s + (d.liters||0), 0);
@@ -879,12 +902,18 @@
 
     html += `
       <div class="stat-grid">
-        <div class="stat-card">${badge('color-mix(in srgb, var(--orange) 16%, transparent)','calendar',32,16)}<div class="stat-value">${fmtMoney(monthTotal)}</div><div class="stat-label">This Month</div></div>
-        <div class="stat-card">${badge('color-mix(in srgb, var(--blue) 16%, transparent)','calendar',32,16)}<div class="stat-value">${fmtMoney(ytdTotal)}</div><div class="stat-label">Year to Date</div></div>
+        <div class="stat-card">${badge('color-mix(in srgb, var(--orange) 16%, transparent)','calendar',32,16)}<div class="stat-value">${fmtMoney(thisYearTotal)}</div><div class="stat-label">This Year</div></div>
+        <div class="stat-card">${badge('color-mix(in srgb, var(--blue) 16%, transparent)','calendar',32,16)}<div class="stat-value">${fmtMoney(allTimeTotal)}</div><div class="stat-label">All Time</div></div>
         <div class="stat-card">${badge('color-mix(in srgb, var(--green) 16%, transparent)','card',32,16)}<div class="stat-value">${fmtMoney(avgFillUp)}</div><div class="stat-label">Avg / Fill-Up</div></div>
         <div class="stat-card">${badge('color-mix(in srgb, var(--purple) 16%, transparent)','drop',32,16)}<div class="stat-value">${fmtMoney(avgPrice)}</div><div class="stat-label">Avg Price / L</div></div>
       </div>
-      ${economy != null ? `<div class="stat-grid" style="margin-top:10px;"><div class="stat-card" style="grid-column:1/3;">${badge('color-mix(in srgb, var(--red) 16%, transparent)','gauge',32,16)}<div class="stat-value">${economy.toFixed(1)} L/100${distUnit}</div><div class="stat-label">Avg Consumption</div></div></div>` : ''}
+      ${economy != null ? `<div class="stat-grid" style="margin-top:10px;"><div class="stat-card econ-card" style="grid-column:1/3;">
+        <div class="econ-head">${badge('color-mix(in srgb, var(--red) 16%, transparent)','gauge',32,16)}<span class="stat-label">Avg Consumption</span></div>
+        <div class="econ-values">
+          <div class="econ-item"><div class="stat-value">${economy.toFixed(1)}</div><div class="econ-unit">L/100${distUnit}</div></div>
+          <div class="econ-item"><div class="stat-value">${(100/economy).toFixed(1)}</div><div class="econ-unit">${distUnit}/L</div></div>
+        </div>
+      </div></div>` : ''}
 
       ${monthEntries.length>1 ? `<div class="chart-card" style="margin-top:16px;"><h3>Monthly Spend</h3><div class="chart-wrap"><canvas id="monthlyCanvas"></canvas></div></div>` : ''}
       ${distanceEntries.length>1 ? `<div class="chart-card"><h3>Monthly Distance</h3><div class="chart-wrap"><canvas id="distanceCanvas"></canvas></div></div>` : ''}
@@ -909,6 +938,7 @@
   let editingId = null;
   let editingServiceId = null;
   let serviceKind = 'service';
+  let serviceDoneBy = 'diy';
 
   function openSheet(sheet){ backdrop.classList.add('open'); sheet.classList.add('open'); }
   function closeSheets(){
@@ -1011,6 +1041,13 @@
   function setServiceKind(k){
     serviceKind = k;
     document.querySelectorAll('#service-kind .seg').forEach(b=> b.classList.toggle('active', b.dataset.k===k));
+  }
+
+  function setServiceDoneBy(d){
+    serviceDoneBy = d;
+    document.querySelectorAll('#service-doneby .seg').forEach(b=> b.classList.toggle('active', b.dataset.d===d));
+    // Shop name only applies to shop visits.
+    document.getElementById('s-shop-field').hidden = (d !== 'shop');
   }
 
   function validateService(){
@@ -1141,7 +1178,9 @@
     editingServiceId = null;
     document.getElementById('service-sheet-title').textContent = 'Add Record';
     setServiceKind('service');
+    setServiceDoneBy('diy');
     document.getElementById('s-title').value = '';
+    document.getElementById('s-shop').value = '';
     document.getElementById('s-date').value = toLocalInputValue(new Date());
     document.getElementById('s-odo').value = '';
     document.getElementById('s-notes').value = '';
@@ -1159,7 +1198,9 @@
     editingServiceId = id;
     document.getElementById('service-sheet-title').textContent = 'Edit Record';
     setServiceKind(x.kind === 'mod' ? 'mod' : 'service');
+    setServiceDoneBy(x.doneBy === 'shop' ? 'shop' : 'diy');
     document.getElementById('s-title').value = x.title || '';
+    document.getElementById('s-shop').value = x.shop || '';
     document.getElementById('s-date').value = x.date ? toLocalInputValue(new Date(x.date)) : toLocalInputValue(new Date());
     document.getElementById('s-odo').value = (x.odometer==null||x.odometer==='') ? '' : x.odometer;
     document.getElementById('s-notes').value = x.notes || '';
@@ -1180,6 +1221,8 @@
       id: editingServiceId || newId('s_'),
       vehicleId: (existing && existing.vehicleId) || settings.activeVehicleId,
       kind: serviceKind,
+      doneBy: serviceDoneBy,
+      shop: serviceDoneBy === 'shop' ? document.getElementById('s-shop').value.trim() : '',
       title: document.getElementById('s-title').value.trim(),
       date: fromLocalInputValue(document.getElementById('s-date').value).toISOString(),
       odometer: odoRaw === '' ? null : Number(odoRaw),
@@ -1216,6 +1259,9 @@
   document.getElementById('service-add-item').addEventListener('click', ()=> addItemRow('', '', [], false));
   document.querySelectorAll('#service-kind .seg').forEach(btn=>{
     btn.addEventListener('click', ()=> setServiceKind(btn.dataset.k));
+  });
+  document.querySelectorAll('#service-doneby .seg').forEach(btn=>{
+    btn.addEventListener('click', ()=> setServiceDoneBy(btn.dataset.d));
   });
 
   // ---------- Intervals editor ----------
@@ -1646,7 +1692,7 @@
   function serviceRows(){
     const cur = settings.currency || 'USD';
     const distUnit = settings.distanceUnit === 'mi' ? 'mi' : 'km';
-    const headers = ['Vehicle','Type','Title','Item','Part',`Cost (${cur})`,`Odometer (${distUnit})`,'Date','Notes'];
+    const headers = ['Vehicle','Type','Done by','Shop','Title','Item','Part',`Cost (${cur})`,`Odometer (${distUnit})`,'Date','Notes'];
     // One row per item, so per-item spend is pivotable in the spreadsheet.
     const rows = [];
     allService.slice()
@@ -1655,10 +1701,13 @@
         || new Date(a.date) - new Date(b.date))
       .forEach(s=>{
         const odo = (s.odometer === null || s.odometer === undefined || s.odometer === '') ? '' : Number(s.odometer);
+        const doneBy = s.doneBy === 'shop' ? 'Shop' : s.doneBy === 'diy' ? 'DIY' : '';
         serviceItems(s).forEach(it=>{
           rows.push([
             vehicleName(s.vehicleId),
-            s.kind === 'mod' ? 'Modification' : 'Service',
+            s.kind === 'mod' ? 'Modification' : 'Maintenance',
+            doneBy,
+            s.doneBy === 'shop' ? (s.shop || '') : '',
             s.title || '',
             it.title,
             (it.parts||[]).map(p=>p.name).filter(Boolean).join('; '),
@@ -1878,7 +1927,7 @@
     const svcStyle = {};
     svcStyle[svc.headers.findIndex(h=>h.startsWith('Cost'))] = 2;
     svcStyle[svc.headers.findIndex(h=>h.startsWith('Odometer'))] = 4;
-    const svcSheet = worksheetXml(svc.headers, svc.rows, [18,14,22,22,24,14,14,14,32], svcStyle);
+    const svcSheet = worksheetXml(svc.headers, svc.rows, [18,14,10,18,22,22,24,14,14,14,32], svcStyle);
 
     const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
@@ -1906,7 +1955,7 @@
 
     const workbookXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <sheets><sheet name="Fill-ups" sheetId="1" r:id="rId1"/><sheet name="Service &amp; Mods" sheetId="2" r:id="rId3"/></sheets>
+  <sheets><sheet name="Fill-ups" sheetId="1" r:id="rId1"/><sheet name="Maintenance &amp; Mods" sheetId="2" r:id="rId3"/></sheets>
 </workbook>`;
 
     const workbookRelsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>

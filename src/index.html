@@ -161,14 +161,23 @@
   </div>
 
   <div class="seg-control" id="service-kind" style="margin:8px 16px 4px;">
-    <button class="seg active" data-k="service">Service</button>
+    <button class="seg active" data-k="service">Maintenance</button>
     <button class="seg" data-k="mod">Modification</button>
+  </div>
+
+  <div class="seg-control" id="service-doneby" style="margin:0 16px 4px;">
+    <button class="seg active" data-d="diy">DIY</button>
+    <button class="seg" data-d="shop">Shop</button>
   </div>
 
   <div class="field-group">
     <div class="field">
       <label for="s-title">Title</label>
       <input type="text" id="s-title" placeholder="optional, e.g. Big brake service" autocomplete="off" autocapitalize="words">
+    </div>
+    <div class="field" id="s-shop-field" hidden>
+      <label for="s-shop">Shop</label>
+      <input type="text" id="s-shop" placeholder="optional, e.g. Mr. Lube" autocomplete="off" autocapitalize="words">
     </div>
     <div class="field">
       <label for="s-date">Date</label>
