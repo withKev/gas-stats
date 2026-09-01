@@ -485,7 +485,7 @@
         if(m.economy != null) parts.push(`${m.economy.toFixed(1)} L/100${distUnit}`);
         if(item.pricePerLiter) parts.push(`${fmtMoney(item.pricePerLiter)}/L`);
         const detail = parts.length
-          ? `<div class="row-detail">${parts.join('<span class="row-detail-dot">·</span>')}</div>` : '';
+          ? `<div class="row-detail">${parts.map(p=>`<span class="rd-part">${p}</span>`).join('<span class="row-detail-dot">·</span><wbr>')}</div>` : '';
 
         html += `
           <div class="list-row tappable" data-id="${item.id}">
