@@ -759,18 +759,21 @@
     const modTotal = service.filter(x=>x.kind==='mod').reduce((s,x)=> s + serviceCost(x), 0);
     const totalSpent = serviceTotal + modTotal;
     const currentYear = new Date().getFullYear();
-    // Years with service/mod records (this vehicle) plus the current year.
+    const thisYearSpent = service.filter(x=> new Date(x.date).getFullYear() === currentYear)
+      .reduce((s,x)=> s + serviceCost(x), 0);
+    // The Maintenance card is year-selectable (only that number cycles). Years
+    // come from any service/mod record plus the current year.
     const gYears = [...new Set(service.map(x=> new Date(x.date).getFullYear()).concat(currentYear))]
       .sort((a,b)=> b - a);
     if(!gYears.includes(garageYear)) garageYear = currentYear;   // clamp
-    const yearSpent = service.filter(x=> new Date(x.date).getFullYear() === garageYear)
+    const maintenanceYear = service.filter(x=> x.kind==='service' && new Date(x.date).getFullYear() === garageYear)
       .reduce((s,x)=> s + serviceCost(x), 0);
 
     html += `<div class="stat-grid" style="margin-top:4px;">
       <div class="stat-card">
-        <div class="stat-card-head">${badge('color-mix(in srgb, var(--orange) 16%, transparent)','calendar',32,16)}<select class="year-select" id="garage-year" aria-label="Select year">${gYears.map(y=>`<option value="${y}" ${y===garageYear?'selected':''}>${y}</option>`).join('')}</select></div>
-        <div class="stat-value" style="color:var(--orange);">${fmtMoney(yearSpent)}</div>
-        <div class="stat-label">${garageYear===currentYear ? 'This Year' : 'Total spent'}</div>
+        ${badge('color-mix(in srgb, var(--orange) 16%, transparent)','calendar',32,16)}
+        <div class="stat-value" style="color:var(--orange);">${fmtMoney(thisYearSpent)}</div>
+        <div class="stat-label">This Year</div>
       </div>
       <div class="stat-card">
         ${badge('color-mix(in srgb, var(--blue) 16%, transparent)','card',32,16)}
@@ -780,8 +783,8 @@
     </div>
     <div class="stat-grid" style="margin-top:12px;">
       <div class="stat-card">
-        ${badge('color-mix(in srgb, var(--blue) 16%, transparent)','wrench',32,16)}
-        <div class="stat-value" style="color:var(--blue);">${fmtMoney(serviceTotal)}</div>
+        <div class="stat-card-head">${badge('color-mix(in srgb, var(--blue) 16%, transparent)','wrench',32,16)}<select class="year-select" id="garage-year" aria-label="Select year">${gYears.map(y=>`<option value="${y}" ${y===garageYear?'selected':''}>${y}</option>`).join('')}</select></div>
+        <div class="stat-value" style="color:var(--blue);">${fmtMoney(maintenanceYear)}</div>
         <div class="stat-label">Maintenance</div>
       </div>
       <div class="stat-card">
