@@ -1113,7 +1113,7 @@
     row.hidden = false;
     row.innerHTML = chips.map(t=>`<button type="button" class="suggest-chip">${escapeHtml(t)}</button>`).join('');
     row.querySelectorAll('.suggest-chip').forEach((btn,i)=>{
-      btn.addEventListener('click', ()=> addItemRow(chips[i], '', [], true));
+      btn.addEventListener('click', ()=> addItemRow(chips[i], '', [], 'cost'));
     });
   }
 
@@ -1153,7 +1153,7 @@
     if(focus) line.querySelector('.part-name').focus();
   }
 
-  function addItemRow(title, cost, parts, focusCost){
+  function addItemRow(title, cost, parts, focus){
     const wrap = document.getElementById('service-items');
     const div = document.createElement('div');
     div.className = 'item-row';
@@ -1180,8 +1180,11 @@
     renderServiceItemChips();
     recomputeServiceTotal();
     validateService();
-    if(focusCost) div.querySelector('.item-cost').focus();
-    else div.querySelector('.item-name').focus();
+    // Focus only on a deliberate add (chip -> cost, + Add item -> name); never
+    // when populating an existing entry, so viewing a record doesn't jump the
+    // screen or pop the keyboard.
+    if(focus === 'cost') div.querySelector('.item-cost').focus();
+    else if(focus === 'name') div.querySelector('.item-name').focus();
   }
 
   function setServiceItems(items){
@@ -1285,7 +1288,7 @@
   document.getElementById('service-cancel').addEventListener('click', closeSheets);
   document.getElementById('service-save').addEventListener('click', saveServiceRecord);
   document.getElementById('service-delete').addEventListener('click', deleteServiceRecord);
-  document.getElementById('service-add-item').addEventListener('click', ()=> addItemRow('', '', [], false));
+  document.getElementById('service-add-item').addEventListener('click', ()=> addItemRow('', '', [], 'name'));
   document.querySelectorAll('#service-kind .seg').forEach(btn=>{
     btn.addEventListener('click', ()=> setServiceKind(btn.dataset.k));
   });
