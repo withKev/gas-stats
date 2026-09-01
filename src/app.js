@@ -847,7 +847,7 @@
             <div class="badge round" style="background:color-mix(in srgb, ${x.kind==='mod'?'var(--purple)':'var(--blue)'} 16%, transparent); color:${x.kind==='mod'?'var(--purple)':'var(--blue)'};">${icon(x.kind==='mod'?'sliders':'wrench',16,2)}</div>
             <div class="row-main">
               <div class="row-title">${escapeHtml(serviceLabel(x))} ${tag}</div>
-              <div class="row-sub">${fmtShortDate(x.date)}${meta.length?' · '+meta.join(' · '):''}</div>
+              <div class="row-sub garage-sub">${fmtShortDate(x.date)}${meta.length?' · '+meta.join(' · '):''}</div>
             </div>
             <div class="row-right">
               <div class="row-amount">${total ? fmtMoney(total) : '—'}</div>
