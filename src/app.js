@@ -253,6 +253,25 @@
     return out;
   }
 
+  // Total distance driven per calendar month for the active vehicle. Distance is
+  // the odometer delta each fill-up adds (from perFillMetrics), attributed to the
+  // month of that fill-up — so a stretch driven across a month boundary counts in
+  // the month its reading was taken. Only spans with odometers on both ends count,
+  // so months with missing odometers undercount (by design). Returns
+  // { 'YYYY-MM': distance } with only months that have a computable distance > 0.
+  function distanceByMonth(){
+    const metrics = perFillMetrics();
+    const out = {};
+    activeFills().forEach(f=>{
+      const d = metrics[f.id] && metrics[f.id].distance;
+      if(d){
+        const key = monthKey(new Date(f.date));
+        out[key] = (out[key] || 0) + d;
+      }
+    });
+    return out;
+  }
+
   function computeEconomy(){
     // Walk fill-ups in odometer order. Consumption between two full tanks =
     // all fuel added since the last full tank (including partials and the
@@ -430,7 +449,10 @@
     });
     Object.keys(groups).sort().reverse().forEach(key=>{
       const g = groups[key];
-      html += `<div class="section-header">${g.label}</div><div class="list-card">`;
+      // Sum the odometer-delta distance for the fill-ups in this month.
+      const monthDist = g.items.reduce((s,it)=> s + ((metrics[it.id] && metrics[it.id].distance) || 0), 0);
+      const distLabel = monthDist > 0 ? ` · ${Math.round(monthDist).toLocaleString()} ${distUnit}` : '';
+      html += `<div class="section-header">${g.label}${distLabel}</div><div class="list-card">`;
       g.items.forEach(item=>{
         const meta = GRADE_META[item.grade] || GRADE_META['Regular'];
         const sub = item.location || new Date(item.date).toLocaleDateString();
@@ -476,7 +498,7 @@
   }
 
   // Interactive charts via locally-bundled Chart.js (offline-safe).
-  let monthlyChart = null, trendChart = null;
+  let monthlyChart = null, trendChart = null, distanceChart = null;
 
   // Effective dark state, honoring the manual Appearance override.
   function isDarkMode(){
@@ -494,6 +516,7 @@
       tick: dark ? 'rgba(235,235,245,0.6)' : 'rgba(60,60,67,0.6)',
       orange: (styles.getPropertyValue('--orange') || '#FF9500').trim(),
       blue: (styles.getPropertyValue('--blue') || '#007AFF').trim(),
+      green: (styles.getPropertyValue('--green') || '#34C759').trim(),
       tooltipBg: dark ? 'rgba(44,44,52,0.96)' : 'rgba(255,255,255,0.96)',
       tooltipText: dark ? '#FFFFFF' : '#000000',
       tooltipBorder: dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
@@ -510,12 +533,14 @@
   function destroyCharts(){
     if(monthlyChart){ monthlyChart.destroy(); monthlyChart = null; }
     if(trendChart){ trendChart.destroy(); trendChart = null; }
+    if(distanceChart){ distanceChart.destroy(); distanceChart = null; }
   }
 
-  function buildCharts(monthEntries, trendEntries){
+  function buildCharts(monthEntries, trendEntries, distanceEntries){
     if(typeof Chart === 'undefined') return;   // safety net; bundled so shouldn't happen
     const t = chartTheme();
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const distUnit = settings.distanceUnit === 'mi' ? 'mi' : 'km';
 
     const tooltipStyle = {
       backgroundColor: t.tooltipBg,
@@ -550,6 +575,32 @@
           },
           scales: {
             y: { beginAtZero: true, grid: { color: t.grid }, ticks: { color: t.tick, callback: v => fmtMoney(v) } },
+            x: { grid: { display: false }, ticks: { color: t.tick } }
+          }
+        }
+      });
+    }
+
+    const distanceCanvas = document.getElementById('distanceCanvas');
+    if(distanceCanvas && distanceEntries && distanceEntries.length > 1){
+      distanceChart = new Chart(distanceCanvas, {
+        type: 'bar',
+        data: {
+          labels: distanceEntries.map(m=>m.label),
+          datasets: [{ data: distanceEntries.map(m=>Math.round(m.total)), backgroundColor: t.green, borderRadius: 6, maxBarThickness: 30, hoverBackgroundColor: t.green }]
+        },
+        options: {
+          animation: reduceMotion ? false : { duration: 500 },
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: { ...tooltipStyle, callbacks: {
+              title: items => items[0].label,
+              label: item => `${item.raw.toLocaleString()} ${distUnit}`
+            } }
+          },
+          scales: {
+            y: { beginAtZero: true, grid: { color: t.grid }, ticks: { color: t.tick, callback: v => `${v.toLocaleString()} ${distUnit}` } },
             x: { grid: { display: false }, ticks: { color: t.tick } }
           }
         }
@@ -814,6 +865,14 @@
     const monthEntries = Object.values(byMonth).sort((a,b)=> a.sortKey.localeCompare(b.sortKey)).slice(-12);
     const trendEntries = [...data].sort((a,b)=> new Date(a.date)-new Date(b.date));
 
+    // Monthly distance (odometer deltas). Reuses the same month buckets as spend
+    // so the two charts read consistently; only months with distance appear.
+    const distByMonth = distanceByMonth();
+    const distanceEntries = Object.keys(distByMonth).sort().slice(-12).map(k=>({
+      label: new Date(k + '-02').toLocaleDateString(undefined,{month:'short'}),
+      total: distByMonth[k],
+    }));
+
     html += `
       <div class="stat-grid">
         <div class="stat-card">${badge('color-mix(in srgb, var(--orange) 16%, transparent)','calendar',32,16)}<div class="stat-value">${fmtMoney(monthTotal)}</div><div class="stat-label">This Month</div></div>
@@ -824,6 +883,7 @@
       ${economy != null ? `<div class="stat-grid" style="margin-top:10px;"><div class="stat-card" style="grid-column:1/3;">${badge('color-mix(in srgb, var(--red) 16%, transparent)','gauge',32,16)}<div class="stat-value">${economy.toFixed(1)} L/100${distUnit}</div><div class="stat-label">Avg Consumption</div></div></div>` : ''}
 
       ${monthEntries.length>1 ? `<div class="chart-card" style="margin-top:16px;"><h3>Monthly Spend</h3><div class="chart-wrap"><canvas id="monthlyCanvas"></canvas></div></div>` : ''}
+      ${distanceEntries.length>1 ? `<div class="chart-card"><h3>Monthly Distance</h3><div class="chart-wrap"><canvas id="distanceCanvas"></canvas></div></div>` : ''}
       ${trendEntries.length>1 ? `<div class="chart-card"><h3>Price per Liter Trend</h3><div class="chart-wrap"><canvas id="trendCanvas"></canvas></div></div>` : ''}
 
       <div class="list-card" style="padding:0 14px;">
@@ -833,7 +893,7 @@
     `;
     main.innerHTML = html;
     destroyCharts();
-    buildCharts(monthEntries, trendEntries);
+    buildCharts(monthEntries, trendEntries, distanceEntries);
   }
 
   // ---------- Edit Sheet ----------
