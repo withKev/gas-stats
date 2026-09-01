@@ -277,7 +277,7 @@
     return out;
   }
 
-  function computeEconomy(){
+  function computeEconomy(fills){
     // Walk fill-ups in odometer order. Consumption between two full tanks =
     // all fuel added since the last full tank (including partials and the
     // current full tank) divided by the distance between them.
@@ -285,7 +285,7 @@
     // CRITICAL: only ever one vehicle's fill-ups. Odometers from different
     // cars interleave (45,000 km next to 12,000 km) and would pair up into
     // meaningless distances -- no error, just a wrong number.
-    const all = activeFills()
+    const all = (fills || activeFills())
       .filter(d=> d.odometer != null && d.odometer !== '' && !isNaN(parseFloat(d.odometer)))
       .sort((a,b)=> parseFloat(a.odometer) - parseFloat(b.odometer));
     let totalDist = 0, totalLiters = 0, segLiters = 0, lastFullOdo = null;
@@ -323,6 +323,7 @@
   let activeTab = 'dashboard';
   let dashYear = new Date().getFullYear();   // which year the dashboard spend card shows
   let garageYear = new Date().getFullYear(); // which year the Garage spend card shows
+  let statsYear = new Date().getFullYear();  // Stats tab scope: a year, or 'all'
   const navbarTitle = document.getElementById('navbar-title');
   const main = document.getElementById('main');
   const navbar = document.getElementById('navbar');
@@ -872,7 +873,7 @@
   }
 
   function renderStats(){
-    const data = activeFills();   // scoped: everything below is this vehicle only
+    const data = activeFills();   // all fill-ups for this vehicle (used for All Time + year list)
     let html = titleRowHtml('Stats');
     if(data.length === 0){
       html += `<div class="empty">${badge('var(--blue)','chart',56,26)}<div class="title">No Data Yet</div><div class="body">Log some fill-ups to see your stats.</div></div>`;
@@ -880,36 +881,55 @@
       return;
     }
     const now = new Date();
-    const allTimeTotal = data.reduce((s,d)=> s + (d.totalCost||0), 0);
-    const thisYearTotal = data.filter(d=> new Date(d.date).getFullYear() === now.getFullYear())
-      .reduce((s,d)=> s + (d.totalCost||0), 0);
-    const avgFillUp = data.reduce((s,d)=> s + (d.totalCost||0), 0) / data.length;
-    const avgPrice = data.reduce((s,d)=> s + (d.pricePerLiter||0), 0) / data.length;
-    const totalLiters = data.reduce((s,d)=> s + (d.liters||0), 0);
-    const economy = computeEconomy();
+    const currentYear = now.getFullYear();
     const distUnit = settings.distanceUnit === 'mi' ? 'mi' : 'km';
 
+    // Year options: 'all' plus each year with fill-ups, newest first.
+    const statYears = [...new Set(data.map(d=> new Date(d.date).getFullYear()))].sort((a,b)=> b - a);
+    if(statsYear !== 'all' && !statYears.includes(statsYear)) statsYear = currentYear;
+    if(statsYear !== 'all' && !statYears.includes(statsYear)) statsYear = statYears[0]; // no current-year data yet
+
+    // Scope: the selected year's fill-ups (or all). Everything below except the
+    // All Time card is computed from `scoped`.
+    const scoped = statsYear === 'all' ? data : data.filter(d=> new Date(d.date).getFullYear() === statsYear);
+    const periodLabel = statsYear === 'all' ? 'All Time' : (statsYear === currentYear ? 'This Year' : String(statsYear));
+
+    const allTimeTotal = data.reduce((s,d)=> s + (d.totalCost||0), 0);
+    const scopedTotal = scoped.reduce((s,d)=> s + (d.totalCost||0), 0);
+    const avgFillUp = scoped.length ? scoped.reduce((s,d)=> s + (d.totalCost||0), 0) / scoped.length : 0;
+    const avgPrice = scoped.length ? scoped.reduce((s,d)=> s + (d.pricePerLiter||0), 0) / scoped.length : 0;
+    const totalLiters = scoped.reduce((s,d)=> s + (d.liters||0), 0);
+    const economy = computeEconomy(scoped);
+
+    // Monthly spend for the scope.
     const byMonth = {};
-    data.forEach(d=>{
+    scoped.forEach(d=>{
       const dt = new Date(d.date);
       const key = monthKey(dt);
       if(!byMonth[key]) byMonth[key] = {label: dt.toLocaleDateString(undefined,{month:'short'}), total:0, sortKey:key};
       byMonth[key].total += (d.totalCost||0);
     });
     const monthEntries = Object.values(byMonth).sort((a,b)=> a.sortKey.localeCompare(b.sortKey)).slice(-12);
-    const trendEntries = [...data].sort((a,b)=> new Date(a.date)-new Date(b.date));
+    const trendEntries = [...scoped].sort((a,b)=> new Date(a.date)-new Date(b.date));
 
-    // Monthly distance (odometer deltas). Reuses the same month buckets as spend
-    // so the two charts read consistently; only months with distance appear.
+    // Monthly distance uses the ALL-TIME odometer deltas (so a January delta
+    // still counts December's reading correctly), then filtered to the scope.
     const distByMonth = distanceByMonth();
-    const distanceEntries = Object.keys(distByMonth).sort().slice(-12).map(k=>({
-      label: new Date(k + '-02').toLocaleDateString(undefined,{month:'short'}),
-      total: distByMonth[k],
-    }));
+    const distanceEntries = Object.keys(distByMonth)
+      .filter(k => statsYear === 'all' ? true : k.slice(0,4) === String(statsYear))
+      .sort().slice(-12).map(k=>({
+        label: new Date(k + '-02').toLocaleDateString(undefined,{month:'short'}),
+        total: distByMonth[k],
+      }));
+
+    const yearOptions = [`<option value="all" ${statsYear==='all'?'selected':''}>All time</option>`]
+      .concat(statYears.map(y=>`<option value="${y}" ${statsYear===y?'selected':''}>${y===currentYear ? y+' (This Year)' : y}</option>`))
+      .join('');
 
     html += `
+      <div class="stats-period"><select class="year-select" id="stats-year" aria-label="Select period">${yearOptions}</select></div>
       <div class="stat-grid">
-        <div class="stat-card">${badge('color-mix(in srgb, var(--orange) 16%, transparent)','calendar',32,16)}<div class="stat-value">${fmtMoney(thisYearTotal)}</div><div class="stat-label">This Year</div></div>
+        <div class="stat-card">${badge('color-mix(in srgb, var(--orange) 16%, transparent)','calendar',32,16)}<div class="stat-value">${fmtMoney(scopedTotal)}</div><div class="stat-label">${periodLabel==='All Time'?'Total':escapeHtml(periodLabel)}</div></div>
         <div class="stat-card">${badge('color-mix(in srgb, var(--blue) 16%, transparent)','calendar',32,16)}<div class="stat-value">${fmtMoney(allTimeTotal)}</div><div class="stat-label">All Time</div></div>
         <div class="stat-card">${badge('color-mix(in srgb, var(--green) 16%, transparent)','card',32,16)}<div class="stat-value">${fmtMoney(avgFillUp)}</div><div class="stat-label">Avg / Fill-Up</div></div>
         <div class="stat-card">${badge('color-mix(in srgb, var(--purple) 16%, transparent)','drop',32,16)}<div class="stat-value">${fmtMoney(avgPrice)}</div><div class="stat-label">Avg Price / L</div></div>
@@ -927,11 +947,13 @@
       ${trendEntries.length>1 ? `<div class="chart-card"><h3>Price per Liter Trend</h3><div class="chart-wrap"><canvas id="trendCanvas"></canvas></div></div>` : ''}
 
       <div class="list-card" style="padding:0 14px;">
-        <div class="summary-row"><span>Total Fill-Ups</span><span>${data.length}</span></div>
-        <div class="summary-row"><span>Total Liters</span><span>${totalLiters.toFixed(1)} L</span></div>
+        <div class="summary-row"><span>${statsYear==='all'?'Total':escapeHtml(periodLabel)} Fill-Ups</span><span>${scoped.length}</span></div>
+        <div class="summary-row"><span>${statsYear==='all'?'Total':escapeHtml(periodLabel)} Liters</span><span>${totalLiters.toFixed(1)} L</span></div>
       </div>
     `;
     main.innerHTML = html;
+    const ySel = document.getElementById('stats-year');
+    if(ySel) ySel.addEventListener('change', ()=>{ statsYear = ySel.value==='all' ? 'all' : parseInt(ySel.value,10); renderStats(); wireVehicleBar(); });
     destroyCharts();
     buildCharts(monthEntries, trendEntries, distanceEntries);
   }

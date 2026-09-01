@@ -336,6 +336,9 @@
     background-size:4px 4px,4px 4px; background-repeat:no-repeat;
   }
   .year-select:active{ background-color:var(--fill-tertiary); }
+  /* Stats-tab period selector: a standalone dropdown above the cards. */
+  .stats-period{ display:flex; justify-content:flex-end; padding:0 16px 8px; }
+  .stats-period .year-select{ font-size:15px; font-weight:590; color:var(--text); padding:6px 20px 6px 10px; min-height:32px; background-position:calc(100% - 6px) 14px,calc(100% - 2px) 14px; }
 
   .chart-card{
     background:var(--glass); border-radius:18px; padding:14px; margin:0 16px 12px;
