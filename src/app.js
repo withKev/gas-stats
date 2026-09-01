@@ -322,6 +322,7 @@
   // ---------- Tabs ----------
   let activeTab = 'dashboard';
   let dashYear = new Date().getFullYear();   // which year the dashboard spend card shows
+  let garageYear = new Date().getFullYear(); // which year the Garage spend card shows
   const navbarTitle = document.getElementById('navbar-title');
   const main = document.getElementById('main');
   const navbar = document.getElementById('navbar');
@@ -758,14 +759,18 @@
     const modTotal = service.filter(x=>x.kind==='mod').reduce((s,x)=> s + serviceCost(x), 0);
     const totalSpent = serviceTotal + modTotal;
     const currentYear = new Date().getFullYear();
-    const thisYearSpent = service.filter(x=> new Date(x.date).getFullYear() === currentYear)
+    // Years with service/mod records (this vehicle) plus the current year.
+    const gYears = [...new Set(service.map(x=> new Date(x.date).getFullYear()).concat(currentYear))]
+      .sort((a,b)=> b - a);
+    if(!gYears.includes(garageYear)) garageYear = currentYear;   // clamp
+    const yearSpent = service.filter(x=> new Date(x.date).getFullYear() === garageYear)
       .reduce((s,x)=> s + serviceCost(x), 0);
 
     html += `<div class="stat-grid" style="margin-top:4px;">
       <div class="stat-card">
-        ${badge('color-mix(in srgb, var(--orange) 16%, transparent)','calendar',32,16)}
-        <div class="stat-value" style="color:var(--orange);">${fmtMoney(thisYearSpent)}</div>
-        <div class="stat-label">This Year</div>
+        <div class="stat-card-head">${badge('color-mix(in srgb, var(--orange) 16%, transparent)','calendar',32,16)}<select class="year-select" id="garage-year" aria-label="Select year">${gYears.map(y=>`<option value="${y}" ${y===garageYear?'selected':''}>${y}</option>`).join('')}</select></div>
+        <div class="stat-value" style="color:var(--orange);">${fmtMoney(yearSpent)}</div>
+        <div class="stat-label">${garageYear===currentYear ? 'This Year' : 'Total spent'}</div>
       </div>
       <div class="stat-card">
         ${badge('color-mix(in srgb, var(--blue) 16%, transparent)','card',32,16)}
@@ -853,6 +858,8 @@
 
     // Wire interactions
     document.getElementById('edit-intervals-btn')?.addEventListener('click', openIntervalsSheet);
+    const gYearSel = document.getElementById('garage-year');
+    if(gYearSel) gYearSel.addEventListener('change', ()=>{ garageYear = parseInt(gYearSel.value,10); renderGarage(); wireVehicleBar(); });
     main.querySelectorAll('#garage-filter .seg').forEach(btn=>{
       btn.addEventListener('click', ()=>{ settings.garageFilter = btn.dataset.f; saveSettings(); renderGarage(); wireVehicleBar(); });
     });
