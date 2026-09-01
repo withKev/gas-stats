@@ -451,8 +451,12 @@
       const g = groups[key];
       // Sum the odometer-delta distance for the fill-ups in this month.
       const monthDist = g.items.reduce((s,it)=> s + ((metrics[it.id] && metrics[it.id].distance) || 0), 0);
-      const distLabel = monthDist > 0 ? ` · ${Math.round(monthDist).toLocaleString()} ${distUnit}` : '';
-      html += `<div class="section-header">${g.label}${distLabel}</div><div class="list-card">`;
+      const monthSpend = g.items.reduce((s,it)=> s + (it.totalCost || 0), 0);
+      // Right side of the header: spend (always present) and distance (only when
+      // computable). Kept in a muted span so the month name stays the emphasis.
+      const bits = [fmtMoney(monthSpend)];
+      if(monthDist > 0) bits.push(`${Math.round(monthDist).toLocaleString()} ${distUnit}`);
+      html += `<div class="section-header"><span>${g.label}</span><span class="month-meta">${bits.join(' · ')}</span></div><div class="list-card">`;
       g.items.forEach(item=>{
         const meta = GRADE_META[item.grade] || GRADE_META['Regular'];
         const sub = item.location || new Date(item.date).toLocaleDateString();
