@@ -825,14 +825,11 @@
     } else {
       html += `<div class="list-card">` + shown.map(x=>{
         const unit = distUnitLabel();
-        const items = serviceItemTitles(x);
         const meta = [];
         if(x.odometer!=null && x.odometer!=='') meta.push(`${Math.round(Number(x.odometer)).toLocaleString()} ${unit}`);
-        // If the entry has a custom title, list its items here; if it has no
-        // title (so the headline already *is* the item list), show a count for
-        // multi-item entries instead of repeating the names.
-        if(x.title && x.title.trim() && items.length) meta.push(escapeHtml(items.join(', ')));
-        else if(items.length > 1) meta.push(`${items.length} items`);
+        // Sub-line stays: date · odometer · DIY/shop. The item list is not shown
+        // here (it's the row title when there's no custom title, and always
+        // visible when you open the entry).
         const by = doneByLabel(x);
         if(by) meta.push(escapeHtml(by));
         const tag = x.kind==='mod' ? `<span class="kind-tag mod">Mod</span>` : `<span class="kind-tag svc">Maintenance</span>`;
