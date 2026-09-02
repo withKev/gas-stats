@@ -306,7 +306,6 @@
 
   // ---------- Icon injection for static chrome ----------
   document.getElementById('fab').innerHTML = icon('plus', 28, 2.4);
-  document.getElementById('locate-btn').innerHTML = icon('pin', 19);
 
   const TAB_DEFS = [
     { id:'dashboard', label:'Dashboard', icon:'grid' },
@@ -403,7 +402,7 @@
         <div class="hero">
           <div class="hero-eyebrow">Get started</div>
           <div class="hero-sub" style="font-size:17px; font-weight:600; margin-top:4px;">Log your first fill-up</div>
-          <div class="hero-sub" style="margin-top:4px;">Track cost, location, and fuel economy over time.</div>
+          <div class="hero-sub" style="margin-top:4px;">Track cost and fuel economy over time.</div>
           <button class="hero-empty-btn" id="hero-add-btn">${icon('plus',16,2.4)}<span>Add Fill-Up</span></button>
         </div>`;
       main.innerHTML = html;
@@ -433,7 +432,7 @@
       <div class="hero">
         <div class="hero-eyebrow">Last Fill-Up</div>
         <div class="hero-amount">${fmtMoney(last.totalCost)}</div>
-        <div class="hero-sub">${escapeHtml(last.station || 'Fill-Up')}${last.location ? ' · ' + escapeHtml(last.location) : ''}</div>
+        <div class="hero-sub">${escapeHtml(last.station || 'Fill-Up')}</div>
         <div class="hero-meta">
           <div>Date<strong>${new Date(last.date).toLocaleDateString(undefined,{month:'short',day:'numeric'})}</strong></div>
           <div>Liters<strong>${(last.liters||0).toFixed(1)} L</strong></div>
@@ -473,7 +472,7 @@
       html += `<div class="section-header"><span>${g.label}</span><span class="month-meta">${bits.join(' · ')}</span></div><div class="list-card">`;
       g.items.forEach(item=>{
         const meta = GRADE_META[item.grade] || GRADE_META['Regular'];
-        const sub = item.location || fmtShortDate(item.date);
+        const sub = fmtShortDate(item.date);
 
         // Compact detail line: only the fields we actually have. Odometer and
         // price/L come straight off the fill-up; distance and efficiency are
@@ -1437,7 +1436,6 @@
     document.getElementById('delete-btn').style.display = 'none';
     document.getElementById('f-date').value = toLocalInputValue(new Date());
     document.getElementById('f-station').value = '';
-    document.getElementById('f-location').value = '';
     document.getElementById('f-grade').value = settings.defaultGrade || 'Regular';
     document.getElementById('f-full').checked = true;
     document.getElementById('f-liters').value = '';
@@ -1466,7 +1464,6 @@
     document.getElementById('delete-btn').style.display = 'flex';
     document.getElementById('f-date').value = toLocalInputValue(new Date(item.date));
     document.getElementById('f-station').value = item.station || '';
-    document.getElementById('f-location').value = item.location || '';
     document.getElementById('f-grade').value = item.grade || 'Regular';
     document.getElementById('f-full').checked = !!item.fullTank;
     document.getElementById('f-liters').value = item.liters || '';
@@ -1600,7 +1597,6 @@
       vehicleId: (existing && existing.vehicleId) || settings.activeVehicleId,
       date: fromLocalInputValue(document.getElementById('f-date').value).toISOString(),
       station: document.getElementById('f-station').value.trim(),
-      location: document.getElementById('f-location').value.trim(),
       grade: document.getElementById('f-grade').value,
       fullTank: document.getElementById('f-full').checked,
       liters, pricePerLiter: price, totalCost: total,
@@ -1634,21 +1630,6 @@
       render();
       showToast('Deleted');
     }
-  });
-
-  document.getElementById('locate-btn').addEventListener('click', ()=>{
-    if(!navigator.geolocation){ showToast('Location not available'); return; }
-    navigator.geolocation.getCurrentPosition(async pos=>{
-      const {latitude, longitude} = pos.coords;
-      try{
-        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=16`);
-        const j = await res.json();
-        const name = j.name || j.address?.road || j.address?.suburb || j.address?.city || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
-        document.getElementById('f-location').value = name;
-      }catch(e){
-        document.getElementById('f-location').value = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
-      }
-    }, ()=> showToast('Could not get location'));
   });
 
   // ---------- Settings (rendered as a dedicated tab) ----------
@@ -1781,7 +1762,7 @@
   function sheetRows(){
     const cur = settings.currency || 'USD';
     const distUnit = settings.distanceUnit === 'mi' ? 'mi' : 'km';
-    const headers = ['Vehicle','Date','Station','Location','Grade','Full Tank','Liters',
+    const headers = ['Vehicle','Date','Station','Grade','Full Tank','Liters',
       `Price/Liter (${cur})`, `Total Cost (${cur})`, `Discount Saved (${cur})`, `Odometer (${distUnit})`, 'Notes'];
     // Every vehicle, grouped together and each in date order -- so the sheet
     // reads as one block per car rather than an interleaved jumble.
@@ -1793,7 +1774,6 @@
         vehicleName(r.vehicleId),
         fmtDateForSheet(r.date),
         r.station || '',
-        r.location || '',
         r.grade || '',
         r.fullTank ? 'Yes' : 'No',
         Number(r.liters) || 0,
@@ -2041,7 +2021,7 @@
     fuelStyle[fuel.headers.findIndex(h=>h.startsWith('Total Cost'))] = 2;
     fuelStyle[fuel.headers.findIndex(h=>h.startsWith('Discount Saved'))] = 2;
     fuelStyle[fuel.headers.findIndex(h=>h.startsWith('Odometer'))] = 4;
-    const fuelSheet = worksheetXml(fuel.headers, fuel.rows, [18,14,20,22,12,10,10,16,14,16,14,32], fuelStyle);
+    const fuelSheet = worksheetXml(fuel.headers, fuel.rows, [18,14,20,12,10,10,16,14,16,14,32], fuelStyle);
 
     // --- Sheet 2: Service & mods ---
     const svc = serviceRows();
