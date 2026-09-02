@@ -156,44 +156,62 @@ state. Note `sample-data.json` is `{data, settings}`, not a bare array.
 
 ## Current state of the app
 
-Three bottom tabs: **Dashboard**, **Stats**, **Settings**.
+Four bottom tabs: **Dashboard**, **Stats**, **Garage**, **Settings**. The
+**vehicle switcher** is the grey name + chevron at the right end of the large
+title on Dashboard, Stats, and Garage (tap to open the vehicle sheet).
+Everything is scoped to the active vehicle.
 
-Four tabs: Dashboard, Stats, **Garage**, Settings. The **vehicle switcher** is
-the grey name + chevron at the right end of the large title on Dashboard, Stats,
-and Garage (tap to open the vehicle sheet). Everything is scoped to the active
-vehicle.
-
-- **Dashboard** — orange gradient hero card (last fill-up), four stat cards
-  (this month, YTD, avg price/L, avg consumption), then the full fill-up
-  history grouped by month, newest first. Each history card has a compact
-  metrics line (km driven, odometer, full-tank efficiency, price/L) — fields
-  are omitted when not computable. Tap any row to edit.
-- **Stats** — four stat cards, an interactive Monthly Spend bar chart and a
-  Price per Liter line chart (Chart.js, tooltips on tap/hover).
-- **Garage** — maintenance + modification log. Total spent (combined, plus
-  Service and Mods subtotals; fuel excluded), an "Up Next" due list (per the
-  vehicle's intervals; status coloured overdue/soon/ok/unlogged), and a
-  filterable history (All / Service / Mods). "Edit intervals" opens the
-  intervals editor. The FAB opens the *service* form here, the fill-up form
-  elsewhere.
-- **Settings** — currency (20 options), distance unit (km/mi), appearance
-  (Automatic/Light/Dark), then:
-  - **Backup**: Export backup (JSON) / Import backup (JSON)
-  - **Spreadsheet Export**: CSV (two files: fuel + service) / Excel (two tabs:
-    Fill-ups + Service & Mods) — read-only
+- **Dashboard** — orange gradient hero card (last fill-up), then four stat
+  cards: This Month, a **year-selectable** spend card (native year dropdown;
+  current year shows "Year to Date", past years the full-year total), Avg
+  Price/L, Avg Consumption. Below, the full fill-up history grouped by month,
+  newest first. Each **month header** shows that month's spend and (when
+  odometers allow) distance driven; each history card has a compact metrics
+  line (km driven, odometer, full-tank efficiency, price/L) that **wraps**
+  rather than truncating. Tap any row to edit.
+- **Stats** — a **period dropdown** at the top ("All time" + each year with
+  data, default current year) scopes the whole tab: the first spend card, Avg
+  Fill-Up, Avg Price/L, Avg Consumption, all three charts, and the totals. The
+  **All Time** card stays fixed as a reference. Avg Consumption shows two stats
+  (L/100km and km/L). Charts: Monthly Spend (bar), Monthly Distance (bar,
+  green), Price per Liter Trend (line) — Chart.js, tooltips on tap/hover.
+- **Garage** — maintenance + modification log. Top cards: This Year and All
+  Time spend (fixed), then a **year-selectable Maintenance** subtotal (its own
+  dropdown; only that number cycles) and an all-time Modifications subtotal.
+  An "Up Next" due list (per intervals; status coloured
+  overdue/soon/ok/unlogged), and a filterable history (All / **Maintenance** /
+  Mods). Each history row shows date · odometer · DIY-or-shop-name (this line
+  wraps). "Edit intervals" opens the intervals editor. The FAB opens the
+  *service* form here, the fill-up form elsewhere.
+- **Settings** — **Preferences** (currency, distance unit, default grade,
+  appearance); **Discounts** (per-litre Discount/L + an add/remove list of
+  Discount Stations); **Backup** (Export/Import JSON); **Spreadsheet Export**
+  (CSV = two files fuel+service; Excel = two tabs) — read-only.
 - **FAB** — round orange "+" bottom-right; opens the add sheet (fill-up, or
   service on Garage). Hidden on Settings; tucks away on scroll-down.
-- Fill-up sheet: date, station (+ suggestion chips), location (+ GPS button),
-  grade, full-tank toggle, liters, price/L (auto-computes total), odometer,
-  notes, delete.
-- Service sheet: Service/Modification toggle, a custom entry title, shared
-  date + odometer, then an **Items** section — tap interval chips to add an item
-  or "+ Add item" to free-type one. Each item has a cost and its own **part
-  lines** (name + price, add/removable). An item's cost is the sum of its parts
-  when it has any (read-only) and directly editable when it has none. A live
-  entry total sums the item costs. Then notes, delete.
+- Fill-up sheet: date, station (+ suggestion chips), grade (defaults from the
+  Default Grade setting), full-tank toggle, liters, price/L (pump price;
+  auto-computes total), Discount/L + Additional Discount (see below), total,
+  odometer, notes, delete. **No location field** (removed — the station name
+  identifies where you go).
+- Service sheet: Maintenance/Modification toggle, **DIY/Shop** toggle (+ a Shop
+  name field when Shop), a custom entry title, shared date + odometer, then an
+  **Items** section — tap interval chips or "+ Add item"; each item has a cost
+  and its own **part lines** (name + price). An item's cost is the sum of its
+  parts when it has any (read-only) else editable. Live entry total, notes,
+  delete. Opening an existing entry does **not** auto-focus a field.
 - Vehicle sheet: switch/add/rename/delete (delete cascades to that vehicle's
   fill-ups, service, and intervals; blocked when only one vehicle remains).
+
+**Fuel discounts** (pump price is unchanged; the discount only reduces the
+*total paid*, so all price stats stay the posted price): each fill-up has a
+per-litre **Discount / L** and a flat **Additional Discount**. saved =
+discountPerLiter × liters + additionalDiscount; total = liters × price − saved.
+The **Default Discount / L** (Settings → Discounts) pre-fills new fill-ups; if
+one or more **Discount Stations** are listed, it fills only when the entered
+station matches one of them (case-insensitive) and clears otherwise; with no
+stations listed it pre-fills everywhere. `discountSaved()` computes the amount;
+the fuel export has a Discount Saved column.
 
 Mobile/PWA: safe-area insets, `100dvh`, 16px inputs (blocks iOS focus-zoom),
 44pt tap targets, 180×180 apple-touch-icon, maskable manifest icons, and 16
@@ -216,25 +234,30 @@ reads the scoped views `activeFills()` / `activeService()` / `activeIntervals()`
 `all*` arrays.** Mixing them up is how data gets lost.
 
 - `fuelTrackerData_v1` — fill-ups:
-  `{ id:"f_...", vehicleId, date:ISO, station, location,
+  `{ id:"f_...", vehicleId, date:ISO, station,
      grade:"Regular|Mid-Grade|Premium|Diesel|E85", fullTank:bool,
-     liters, pricePerLiter, totalCost, odometer:null, notes }`
+     liters, pricePerLiter (pump price), totalCost (net, after discount),
+     discountPerLiter:null, additionalDiscount:null, odometer:null, notes }`
+  (No `location` — removed. Old backups may still carry it; it's read on import
+  but not shown or written.)
 - `fuelTrackerVehicles_v1` — `[{ id:"v_...", name }]`
 - `fuelTrackerService_v1` — service/mod log; each entry holds an `items` array,
-  and each item holds priced `parts`:
-  `{ id:"s_...", vehicleId, kind:"service"|"mod", title, date:ISO,
-     odometer:null, notes,
+  each item holds priced `parts`, plus a DIY/shop tag:
+  `{ id:"s_...", vehicleId, kind:"service"|"mod", doneBy:"diy"|"shop"|null,
+     shop, title, date:ISO, odometer:null, notes,
      items:[ { title, cost, parts:[ {name, price} ] } ] }`
-  An item's `cost` equals the sum of its part prices when it has parts, else a
-  directly-entered value. The entry total (and Garage subtotals) come from
-  `serviceCost()` = sum of item costs. Use the `serviceItems()` / `serviceCost()`
-  / `serviceItemTitles()` / `serviceLabel()` helpers rather than reading these
-  fields raw — they normalize the shape (and tolerate legacy string parts).
-  `sumCents()` rounds money sums to whole cents (floating-point guard).
+  ("service" kind is labelled **Maintenance** in the UI — internal value kept
+  to avoid migration.) An item's `cost` = sum of its part prices when it has
+  parts, else a directly-entered value. Use the `serviceItems()` /
+  `serviceCost()` / `serviceItemTitles()` / `serviceLabel()` / `doneByLabel()`
+  helpers rather than reading fields raw — they normalize the shape (and
+  tolerate legacy string parts). `sumCents()` rounds money sums to whole cents.
 - `fuelTrackerIntervals_v1` — per-vehicle intervals:
   `{ id:"i_...", vehicleId, title, distance, months }` (either may be 0)
 - `fuelTrackerSettings_v1` —
-  `{ currency, distanceUnit, theme, activeVehicleId, garageFilter }`
+  `{ currency, distanceUnit, theme, activeVehicleId, garageFilter,
+     defaultGrade, defaultDiscountPerLiter, defaultDiscountStation (comma-joined
+     station list) }`
 
 `ensureVehicles()` runs on load and after import: creates a "My Car" if none
 exist, adopts orphaned fill-ups/service/intervals onto the first vehicle,
@@ -271,6 +294,8 @@ a much heavier lift than JSON import.
    cars' odometers interleave (e.g. 45,000 next to 12,000) and would pair into
    meaningless distances: no error, just a silently wrong number. Same applies
    to `perFillMetrics()` (the per-card km/efficiency line) and `computeDueList()`.
+   `computeEconomy(fills)` takes an optional fills array so the Stats period
+   filter can scope it to one year (defaults to `activeFills()`).
 4. **Native `<select>` popups ignore page colors.** Option colors are set
    explicitly for light and dark. Keep both.
 5. **Stale service-worker caches** made fixes look like they never landed.
@@ -319,7 +344,22 @@ a much heavier lift than JSON import.
 14. **Adding a spreadsheet column shifts every hard-coded column index.** The
     CSV/XLSX writers derive numeric-column indices from the header names
     (`headers.indexOf('Liters')` etc.), not fixed positions, so a new column
-    can't silently mis-format another. Keep it that way.
+    can't silently mis-format another. Keep it that way. The XLSX **width array**
+    is positional, though — update its length when you add/remove a column.
+15. **Pump price vs net total.** `pricePerLiter` is always the posted pump price
+    and drives every price stat (Avg Price/L, trend, per-fill price/L). The
+    discount only reduces `totalCost`. So on a discounted fill, `totalCost` is
+    deliberately *less* than `liters × pricePerLiter` — don't "fix" that.
+16. **The default discount is station-gated.** With `defaultDiscountStation`
+    non-empty, the discount does NOT pre-fill on open; it fills when the entered
+    station matches (via `applyStationDiscount`, wired to the station input and
+    the suggestion chips). Editing preserves a stored discount unless the user
+    changes the station. Blank station list → pre-fill everywhere on open.
+17. **Long metadata lines wrap, they don't truncate.** The Garage history
+    sub-line (`.garage-sub`) and the dashboard per-fill metrics line
+    (`.row-detail`, values wrapped in nowrap `.rd-part` spans + `<wbr>`) were
+    changed from ellipsis-truncation to wrapping so long shop names / four-value
+    metric lines aren't cut off on narrow iPhones. Keep them wrapping.
 
 ## Tooling gotchas (cost real time; don't rediscover)
 
@@ -379,8 +419,6 @@ a much heavier lift than JSON import.
   Export/Import to Files. If the user wants real sync, that needs a backend
   (e.g. Supabase) — offer it, don't fake it.
 - Data is per-browser, per-device. Clearing Safari data deletes it.
-- Location autofill uses the free Nominatim geocoder, which can rate-limit;
-  it falls back to raw coordinates.
 - A native Swift/SwiftData+CloudKit version was prototyped early on and
   abandoned in favor of this web app. Don't resurrect it unprompted.
 - The sandbox cannot reach `*.pages.dev`. You cannot confirm a live deploy
@@ -402,8 +440,5 @@ Minor known behaviours (not bugs, but a user might ask): editing a fill-up or
 service record keeps it on its original vehicle — there's no move-between-cars.
 The GitHub Actions workflow still uses `actions/checkout@v4` etc. on a
 deprecated Node-20 runtime (harmless warning; bump when convenient).
-
-Housekeeping: workflow still uses `actions/checkout@v4` etc., which GitHub warns
-run on a deprecated Node 20 runtime. Harmless; bump when convenient.
 
 Ask before building.
