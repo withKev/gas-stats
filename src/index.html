@@ -123,6 +123,18 @@
 
   <div class="field-group">
     <div class="field">
+      <label>Discount / L</label>
+      <input type="number" inputmode="decimal" id="f-discount" placeholder="e.g. 0.03">
+    </div>
+    <div class="field" id="f-discount-max-field" hidden>
+      <label>Up to (L)</label>
+      <input type="number" inputmode="decimal" id="f-discount-max" placeholder="all liters">
+    </div>
+  </div>
+  <div class="hint" id="f-discount-hint" hidden></div>
+
+  <div class="field-group">
+    <div class="field">
       <label>Odometer</label>
       <input type="number" inputmode="decimal" id="f-odo" placeholder="optional">
     </div>

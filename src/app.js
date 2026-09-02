@@ -1437,14 +1437,17 @@
     document.getElementById('f-date').value = toLocalInputValue(new Date());
     document.getElementById('f-station').value = '';
     document.getElementById('f-location').value = '';
-    document.getElementById('f-grade').value = 'Regular';
+    document.getElementById('f-grade').value = settings.defaultGrade || 'Regular';
     document.getElementById('f-full').checked = true;
     document.getElementById('f-liters').value = '';
     document.getElementById('f-price').value = '';
     document.getElementById('f-total').value = '';
     document.getElementById('f-odo').value = '';
     document.getElementById('f-notes').value = '';
+    document.getElementById('f-discount').value = settings.defaultDiscountPerLiter || '';
+    document.getElementById('f-discount-max').value = settings.defaultDiscountMaxLiters || '';
     renderStationSuggest();
+    recalcTotal();
     validateForm();
     openSheet(editSheet);
   }
@@ -1465,7 +1468,10 @@
     document.getElementById('f-total').value = item.totalCost || '';
     document.getElementById('f-odo').value = item.odometer ?? '';
     document.getElementById('f-notes').value = item.notes || '';
+    document.getElementById('f-discount').value = item.discountPerLiter || '';
+    document.getElementById('f-discount-max').value = item.discountMaxLiters ?? '';
     renderStationSuggest();
+    refreshDiscountUI();
     validateForm();
     openSheet(editSheet);
   }
@@ -1515,13 +1521,48 @@
   const litersEl = document.getElementById('f-liters');
   const priceEl = document.getElementById('f-price');
   const totalEl = document.getElementById('f-total');
+  const discEl = document.getElementById('f-discount');
+  const discMaxEl = document.getElementById('f-discount-max');
+
+  // Fuel discount: amount off per liter, applied to at most `max` liters
+  // (blank = all). Returns the dollar amount saved for the given liters.
+  function discountSaved(liters, perLiter, maxLiters){
+    const l = Number(liters)||0, per = Number(perLiter)||0;
+    if(l <= 0 || per <= 0) return 0;
+    const eligible = (maxLiters!=null && maxLiters!=='' && !isNaN(Number(maxLiters)))
+      ? Math.min(l, Number(maxLiters)) : l;
+    return Math.round(per * eligible * 100) / 100;
+  }
+
+  function refreshDiscountUI(){
+    const hasDisc = (Number(discEl.value)||0) > 0;
+    document.getElementById('f-discount-max-field').hidden = !hasDisc;
+    const hintEl = document.getElementById('f-discount-hint');
+    const saved = discountSaved(parseFloat(litersEl.value), discEl.value, discMaxEl.value);
+    if(hasDisc && saved > 0){ hintEl.hidden = false; hintEl.textContent = `You saved ${fmtMoney(saved)} on this fill-up.`; }
+    else { hintEl.hidden = true; }
+  }
+
   function recalcTotal(){
     const l = parseFloat(litersEl.value), p = parseFloat(priceEl.value);
-    if(!isNaN(l) && !isNaN(p)) totalEl.value = (l*p).toFixed(2);
+    if(!isNaN(l) && !isNaN(p)){
+      const saved = discountSaved(l, discEl.value, discMaxEl.value);
+      totalEl.value = Math.max(0, l*p - saved).toFixed(2);
+    }
+    // Show the discount cap field only once a per-liter discount is entered,
+    // and surface what was saved.
+    const hasDisc = (Number(discEl.value)||0) > 0;
+    document.getElementById('f-discount-max-field').hidden = !hasDisc;
+    const hintEl = document.getElementById('f-discount-hint');
+    const saved = discountSaved(l, discEl.value, discMaxEl.value);
+    if(hasDisc && saved > 0){ hintEl.hidden = false; hintEl.textContent = `You saved ${fmtMoney(saved)} on this fill-up.`; }
+    else { hintEl.hidden = true; }
     validateForm();
   }
   litersEl.addEventListener('input', recalcTotal);
   priceEl.addEventListener('input', recalcTotal);
+  discEl.addEventListener('input', recalcTotal);
+  discMaxEl.addEventListener('input', recalcTotal);
   totalEl.addEventListener('input', validateForm);
   document.getElementById('f-station').addEventListener('input', validateForm);
 
@@ -1550,6 +1591,8 @@
       fullTank: document.getElementById('f-full').checked,
       liters, pricePerLiter: price, totalCost: total,
       odometer: odoRaw === '' ? null : parseFloat(odoRaw),
+      discountPerLiter: (Number(discEl.value)||0) || null,
+      discountMaxLiters: (discMaxEl.value !== '' && !isNaN(Number(discMaxEl.value))) ? Number(discMaxEl.value) : null,
       notes: document.getElementById('f-notes').value.trim(),
     };
     if(editingId){
@@ -1598,6 +1641,9 @@
   function renderSettings(){
     const cur = settings.currency || 'USD';
     const dist = settings.distanceUnit || 'km';
+    const defGrade = settings.defaultGrade || 'Regular';
+    const defDiscount = settings.defaultDiscountPerLiter || '';
+    const defDiscountMax = settings.defaultDiscountMaxLiters || '';
     const thm = settings.theme || 'auto';
     const currencyList = [
       ['USD','US Dollar'],['CAD','Canadian Dollar'],['EUR','Euro'],['GBP','British Pound'],
@@ -1623,6 +1669,18 @@
             <option value="km" ${dist==='km'?'selected':''}>Kilometers</option>
             <option value="mi" ${dist==='mi'?'selected':''}>Miles</option>
           </select>
+        </div>
+        <div class="field">
+          <label>Default Grade</label>
+          <select id="s-default-grade">${Object.keys(GRADE_META).map(g=>`<option value="${g}" ${g===defGrade?'selected':''}>${g}</option>`).join('')}</select>
+        </div>
+        <div class="field">
+          <label>Default Discount / L</label>
+          <input type="number" inputmode="decimal" id="s-default-discount" placeholder="e.g. 0.03" value="${defDiscount}">
+        </div>
+        <div class="field">
+          <label>Default Up to (L)</label>
+          <input type="number" inputmode="decimal" id="s-default-discount-max" placeholder="all liters" value="${defDiscountMax}">
         </div>
         <div class="field">
           <label>Appearance</label>
@@ -1653,6 +1711,15 @@
     });
     document.getElementById('s-distance').addEventListener('change', (e)=>{
       settings.distanceUnit = e.target.value || 'km'; saveSettings();
+    });
+    document.getElementById('s-default-grade').addEventListener('change', (e)=>{
+      settings.defaultGrade = e.target.value || 'Regular'; saveSettings(); showToast('Default grade updated');
+    });
+    document.getElementById('s-default-discount').addEventListener('change', (e)=>{
+      const v = Number(e.target.value)||0; settings.defaultDiscountPerLiter = v>0 ? v : null; saveSettings();
+    });
+    document.getElementById('s-default-discount-max').addEventListener('change', (e)=>{
+      const v = e.target.value; settings.defaultDiscountMaxLiters = (v!=='' && !isNaN(Number(v))) ? Number(v) : null; saveSettings();
     });
     document.getElementById('s-theme').addEventListener('change', (e)=>{
       settings.theme = e.target.value || 'auto'; saveSettings(); applyTheme();
@@ -1696,7 +1763,7 @@
     const cur = settings.currency || 'USD';
     const distUnit = settings.distanceUnit === 'mi' ? 'mi' : 'km';
     const headers = ['Vehicle','Date','Station','Location','Grade','Full Tank','Liters',
-      `Price/Liter (${cur})`, `Total Cost (${cur})`, `Odometer (${distUnit})`, 'Notes'];
+      `Price/Liter (${cur})`, `Total Cost (${cur})`, `Discount Saved (${cur})`, `Odometer (${distUnit})`, 'Notes'];
     // Every vehicle, grouped together and each in date order -- so the sheet
     // reads as one block per car rather than an interleaved jumble.
     const rows = allFills.slice()
@@ -1713,6 +1780,7 @@
         Number(r.liters) || 0,
         Number(r.pricePerLiter) || 0,
         Number(r.totalCost) || 0,
+        discountSaved(r.liters, r.discountPerLiter, r.discountMaxLiters),
         (r.odometer === null || r.odometer === undefined) ? '' : Number(r.odometer),
         r.notes || '',
       ]);
@@ -1779,6 +1847,7 @@
       numeric[headers.indexOf('Liters')] = 2;
       numeric[headers.findIndex(h=>h.startsWith('Price/Liter'))] = 3;
       numeric[headers.findIndex(h=>h.startsWith('Total Cost'))] = 2;
+      numeric[headers.findIndex(h=>h.startsWith('Discount Saved'))] = 2;
       const csv = tableToCsv(headers, rows, numeric);
       // Leading BOM so Excel opens UTF-8 CSVs without mangling accented characters.
       downloadBlob(new Blob(['\uFEFF' + csv], {type:'text/csv;charset=utf-8'}),
@@ -1951,8 +2020,9 @@
     fuelStyle[fuel.headers.indexOf('Liters')] = 2;
     fuelStyle[fuel.headers.findIndex(h=>h.startsWith('Price/Liter'))] = 3;
     fuelStyle[fuel.headers.findIndex(h=>h.startsWith('Total Cost'))] = 2;
+    fuelStyle[fuel.headers.findIndex(h=>h.startsWith('Discount Saved'))] = 2;
     fuelStyle[fuel.headers.findIndex(h=>h.startsWith('Odometer'))] = 4;
-    const fuelSheet = worksheetXml(fuel.headers, fuel.rows, [18,14,20,22,12,10,10,16,14,14,32], fuelStyle);
+    const fuelSheet = worksheetXml(fuel.headers, fuel.rows, [18,14,20,22,12,10,10,16,14,16,14,32], fuelStyle);
 
     // --- Sheet 2: Service & mods ---
     const svc = serviceRows();
