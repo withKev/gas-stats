@@ -1446,12 +1446,11 @@
     document.getElementById('f-odo').value = '';
     document.getElementById('f-notes').value = '';
     document.getElementById('f-discount').value = '';
-    document.getElementById('f-discount-max').value = '';
+    document.getElementById('f-discount-extra').value = '';
     // Pre-fill the default discount only when it isn't tied to a station. When
     // it is tied to a station, it fills once that station is entered.
     if(!(settings.defaultDiscountStation||'').trim()){
       document.getElementById('f-discount').value = settings.defaultDiscountPerLiter || '';
-      document.getElementById('f-discount-max').value = settings.defaultDiscountMaxLiters || '';
     }
     renderStationSuggest();
     recalcTotal();
@@ -1476,7 +1475,7 @@
     document.getElementById('f-odo').value = item.odometer ?? '';
     document.getElementById('f-notes').value = item.notes || '';
     document.getElementById('f-discount').value = item.discountPerLiter || '';
-    document.getElementById('f-discount-max').value = item.discountMaxLiters ?? '';
+    document.getElementById('f-discount-extra').value = item.additionalDiscount || '';
     renderStationSuggest();
     refreshDiscountUI();
     validateForm();
@@ -1529,16 +1528,14 @@
   const priceEl = document.getElementById('f-price');
   const totalEl = document.getElementById('f-total');
   const discEl = document.getElementById('f-discount');
-  const discMaxEl = document.getElementById('f-discount-max');
+  const discExtraEl = document.getElementById('f-discount-extra');
 
-  // Fuel discount: amount off per liter, applied to at most `max` liters
-  // (blank = all). Returns the dollar amount saved for the given liters.
-  function discountSaved(liters, perLiter, maxLiters){
-    const l = Number(liters)||0, per = Number(perLiter)||0;
-    if(l <= 0 || per <= 0) return 0;
-    const eligible = (maxLiters!=null && maxLiters!=='' && !isNaN(Number(maxLiters)))
-      ? Math.min(l, Number(maxLiters)) : l;
-    return Math.round(per * eligible * 100) / 100;
+  // Fuel discount saved = per-liter discount applied to all liters, plus any
+  // flat additional discount (one-off special cases).
+  function discountSaved(liters, perLiter, additional){
+    const l = Number(liters)||0, per = Number(perLiter)||0, add = Number(additional)||0;
+    const saved = (l > 0 && per > 0 ? per * l : 0) + (add > 0 ? add : 0);
+    return Math.round(saved * 100) / 100;
   }
 
   // Station-tied discount: if a default discount station is set, the default
@@ -1551,43 +1548,34 @@
     const cur = document.getElementById('f-station').value.trim().toLowerCase();
     if(cur === dStation){
       discEl.value = settings.defaultDiscountPerLiter;
-      discMaxEl.value = settings.defaultDiscountMaxLiters || '';
     } else {
       discEl.value = '';
-      discMaxEl.value = '';
     }
     recalcTotal();
   }
 
   function refreshDiscountUI(){
-    const hasDisc = (Number(discEl.value)||0) > 0;
-    document.getElementById('f-discount-max-field').hidden = !hasDisc;
     const hintEl = document.getElementById('f-discount-hint');
-    const saved = discountSaved(parseFloat(litersEl.value), discEl.value, discMaxEl.value);
-    if(hasDisc && saved > 0){ hintEl.hidden = false; hintEl.textContent = `You saved ${fmtMoney(saved)} on this fill-up.`; }
+    const saved = discountSaved(parseFloat(litersEl.value), discEl.value, discExtraEl.value);
+    if(saved > 0){ hintEl.hidden = false; hintEl.textContent = `You saved ${fmtMoney(saved)} on this fill-up.`; }
     else { hintEl.hidden = true; }
   }
 
   function recalcTotal(){
     const l = parseFloat(litersEl.value), p = parseFloat(priceEl.value);
+    const saved = discountSaved(l, discEl.value, discExtraEl.value);
     if(!isNaN(l) && !isNaN(p)){
-      const saved = discountSaved(l, discEl.value, discMaxEl.value);
       totalEl.value = Math.max(0, l*p - saved).toFixed(2);
     }
-    // Show the discount cap field only once a per-liter discount is entered,
-    // and surface what was saved.
-    const hasDisc = (Number(discEl.value)||0) > 0;
-    document.getElementById('f-discount-max-field').hidden = !hasDisc;
     const hintEl = document.getElementById('f-discount-hint');
-    const saved = discountSaved(l, discEl.value, discMaxEl.value);
-    if(hasDisc && saved > 0){ hintEl.hidden = false; hintEl.textContent = `You saved ${fmtMoney(saved)} on this fill-up.`; }
+    if(saved > 0){ hintEl.hidden = false; hintEl.textContent = `You saved ${fmtMoney(saved)} on this fill-up.`; }
     else { hintEl.hidden = true; }
     validateForm();
   }
   litersEl.addEventListener('input', recalcTotal);
   priceEl.addEventListener('input', recalcTotal);
   discEl.addEventListener('input', recalcTotal);
-  discMaxEl.addEventListener('input', recalcTotal);
+  discExtraEl.addEventListener('input', recalcTotal);
   totalEl.addEventListener('input', validateForm);
   document.getElementById('f-station').addEventListener('input', validateForm);
   document.getElementById('f-station').addEventListener('input', applyStationDiscount);
@@ -1618,7 +1606,7 @@
       liters, pricePerLiter: price, totalCost: total,
       odometer: odoRaw === '' ? null : parseFloat(odoRaw),
       discountPerLiter: (Number(discEl.value)||0) || null,
-      discountMaxLiters: (discMaxEl.value !== '' && !isNaN(Number(discMaxEl.value))) ? Number(discMaxEl.value) : null,
+      additionalDiscount: (Number(discExtraEl.value)||0) || null,
       notes: document.getElementById('f-notes').value.trim(),
     };
     if(editingId){
@@ -1669,7 +1657,6 @@
     const dist = settings.distanceUnit || 'km';
     const defGrade = settings.defaultGrade || 'Regular';
     const defDiscount = settings.defaultDiscountPerLiter || '';
-    const defDiscountMax = settings.defaultDiscountMaxLiters || '';
     const defDiscountStation = settings.defaultDiscountStation || '';
     const thm = settings.theme || 'auto';
     const currencyList = [
@@ -1702,18 +1689,6 @@
           <select id="s-default-grade">${Object.keys(GRADE_META).map(g=>`<option value="${g}" ${g===defGrade?'selected':''}>${g}</option>`).join('')}</select>
         </div>
         <div class="field">
-          <label>Discount Station</label>
-          <input type="text" id="s-default-discount-station" placeholder="any station" value="${escapeHtml(defDiscountStation)}" autocomplete="off" autocapitalize="words">
-        </div>
-        <div class="field">
-          <label>Default Discount / L</label>
-          <input type="number" inputmode="decimal" id="s-default-discount" placeholder="e.g. 0.03" value="${defDiscount}">
-        </div>
-        <div class="field">
-          <label>Default Up to (L)</label>
-          <input type="number" inputmode="decimal" id="s-default-discount-max" placeholder="all liters" value="${defDiscountMax}">
-        </div>
-        <div class="field">
           <label>Appearance</label>
           <select id="s-theme">
             <option value="auto" ${thm==='auto'?'selected':''}>Automatic</option>
@@ -1722,6 +1697,19 @@
           </select>
         </div>
       </div>
+
+      <div class="section-header">Discounts</div>
+      <div class="field-group">
+        <div class="field">
+          <label>Discount Station</label>
+          <input type="text" id="s-default-discount-station" placeholder="any station" value="${escapeHtml(defDiscountStation)}" autocomplete="off" autocapitalize="words">
+        </div>
+        <div class="field">
+          <label>Discount / L</label>
+          <input type="number" inputmode="decimal" id="s-default-discount" placeholder="e.g. 0.03" value="${defDiscount}">
+        </div>
+      </div>
+      <div class="hint">Set the per-litre discount you get regularly (e.g. a credit-card discount). When you name a Discount Station, it fills in automatically only at that station; leave it blank to apply everywhere. You can still add or change a discount, plus a one-off Additional Discount, on any fill-up.</div>
       <div class="section-header">Backup</div>
       <div class="field-group">
         <div class="field tappable" style="cursor:pointer;" id="export-row"><label style="width:auto;flex:1;">Export backup (JSON)</label><span style="color:var(--text-tertiary);">${icon('up',20)}</span></div>
@@ -1751,9 +1739,6 @@
     });
     document.getElementById('s-default-discount').addEventListener('change', (e)=>{
       const v = Number(e.target.value)||0; settings.defaultDiscountPerLiter = v>0 ? v : null; saveSettings();
-    });
-    document.getElementById('s-default-discount-max').addEventListener('change', (e)=>{
-      const v = e.target.value; settings.defaultDiscountMaxLiters = (v!=='' && !isNaN(Number(v))) ? Number(v) : null; saveSettings();
     });
     document.getElementById('s-theme').addEventListener('change', (e)=>{
       settings.theme = e.target.value || 'auto'; saveSettings(); applyTheme();
@@ -1814,7 +1799,7 @@
         Number(r.liters) || 0,
         Number(r.pricePerLiter) || 0,
         Number(r.totalCost) || 0,
-        discountSaved(r.liters, r.discountPerLiter, r.discountMaxLiters),
+        discountSaved(r.liters, r.discountPerLiter, r.additionalDiscount),
         (r.odometer === null || r.odometer === undefined) ? '' : Number(r.odometer),
         r.notes || '',
       ]);
