@@ -1634,7 +1634,6 @@
     const dist = settings.distanceUnit || 'km';
     const defGrade = settings.defaultGrade || 'Regular';
     const defDiscount = settings.defaultDiscountPerLiter || '';
-    const defDiscountStation = settings.defaultDiscountStation || '';
     const thm = settings.theme || 'auto';
     const currencyList = [
       ['USD','US Dollar'],['CAD','Canadian Dollar'],['EUR','Euro'],['GBP','British Pound'],
@@ -1678,15 +1677,14 @@
       <div class="section-header">Discounts</div>
       <div class="field-group">
         <div class="field">
-          <label>Discount Stations</label>
-          <input type="text" id="s-default-discount-station" placeholder="any station" value="${escapeHtml(defDiscountStation)}" autocomplete="off" autocapitalize="words">
-        </div>
-        <div class="field">
           <label>Discount / L</label>
           <input type="number" inputmode="decimal" id="s-default-discount" placeholder="e.g. 0.03" value="${defDiscount}">
         </div>
       </div>
-      <div class="hint">Set the per-litre discount you get regularly (e.g. a credit-card discount). Name one or more Discount Stations (separate several with commas) and it fills in automatically only at those stations; leave blank to apply everywhere. You can still add or change a discount, plus a one-off Additional Discount, on any fill-up.</div>
+      <div class="sheet-label">Stations</div>
+      <div id="discount-stations"></div>
+      <button class="add-item-btn" id="add-discount-station">+ Add station</button>
+      <div class="hint">Set the per-litre discount you get regularly (e.g. a credit-card discount). Add the stations where it applies and it fills in automatically only there; add none to apply everywhere. You can still add or change a discount, plus a one-off Additional Discount, on any fill-up.</div>
       <div class="section-header">Backup</div>
       <div class="field-group">
         <div class="field tappable" style="cursor:pointer;" id="export-row"><label style="width:auto;flex:1;">Export backup (JSON)</label><span style="color:var(--text-tertiary);">${icon('up',20)}</span></div>
@@ -1711,9 +1709,30 @@
     document.getElementById('s-default-grade').addEventListener('change', (e)=>{
       settings.defaultGrade = e.target.value || 'Regular'; saveSettings(); showToast('Default grade updated');
     });
-    document.getElementById('s-default-discount-station').addEventListener('change', (e)=>{
-      settings.defaultDiscountStation = e.target.value.trim(); saveSettings();
-    });
+    // Discount stations: an add/remove list. Stored as a comma-joined string in
+    // settings.defaultDiscountStation (backward-compatible).
+    function saveDiscountStations(){
+      const wrap = document.getElementById('discount-stations');
+      const vals = [...wrap.querySelectorAll('.station-name')].map(i=>i.value.trim()).filter(Boolean);
+      settings.defaultDiscountStation = vals.join(', ');
+      saveSettings();
+    }
+    function addStationRow(name, focus){
+      const wrap = document.getElementById('discount-stations');
+      const row = document.createElement('div');
+      row.className = 'station-row';
+      row.innerHTML = `<input type="text" class="station-name" placeholder="e.g. Chevron" autocomplete="off" autocapitalize="words"><button type="button" class="station-remove" aria-label="Remove station">${icon('trash',18,2)}</button>`;
+      row.querySelector('.station-name').value = name || '';
+      wrap.appendChild(row);
+      row.querySelector('.station-name').addEventListener('input', saveDiscountStations);
+      row.querySelector('.station-remove').addEventListener('click', ()=>{ row.remove(); saveDiscountStations(); });
+      if(focus) row.querySelector('.station-name').focus();
+    }
+    (function renderDiscountStations(){
+      const list = (settings.defaultDiscountStation||'').split(',').map(s=>s.trim()).filter(Boolean);
+      (list.length ? list : ['']).forEach(n=> addStationRow(n, false));
+    })();
+    document.getElementById('add-discount-station').addEventListener('click', ()=> addStationRow('', true));
     document.getElementById('s-default-discount').addEventListener('change', (e)=>{
       const v = Number(e.target.value)||0; settings.defaultDiscountPerLiter = v>0 ? v : null; saveSettings();
     });
