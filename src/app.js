@@ -1420,6 +1420,7 @@
       btn.addEventListener('click', ()=>{
         input.value = matches[i];
         renderStationSuggest();
+        applyStationDiscount();
       });
     });
   }
@@ -1444,8 +1445,14 @@
     document.getElementById('f-total').value = '';
     document.getElementById('f-odo').value = '';
     document.getElementById('f-notes').value = '';
-    document.getElementById('f-discount').value = settings.defaultDiscountPerLiter || '';
-    document.getElementById('f-discount-max').value = settings.defaultDiscountMaxLiters || '';
+    document.getElementById('f-discount').value = '';
+    document.getElementById('f-discount-max').value = '';
+    // Pre-fill the default discount only when it isn't tied to a station. When
+    // it is tied to a station, it fills once that station is entered.
+    if(!(settings.defaultDiscountStation||'').trim()){
+      document.getElementById('f-discount').value = settings.defaultDiscountPerLiter || '';
+      document.getElementById('f-discount-max').value = settings.defaultDiscountMaxLiters || '';
+    }
     renderStationSuggest();
     recalcTotal();
     validateForm();
@@ -1534,6 +1541,24 @@
     return Math.round(per * eligible * 100) / 100;
   }
 
+  // Station-tied discount: if a default discount station is set, the default
+  // discount fills only when the entered station matches it, and clears
+  // otherwise. With no station set, the default discount is not station-gated
+  // (it pre-fills on open instead — see openAdd).
+  function applyStationDiscount(){
+    const dStation = (settings.defaultDiscountStation||'').trim().toLowerCase();
+    if(!dStation || !(Number(settings.defaultDiscountPerLiter)||0)) return;
+    const cur = document.getElementById('f-station').value.trim().toLowerCase();
+    if(cur === dStation){
+      discEl.value = settings.defaultDiscountPerLiter;
+      discMaxEl.value = settings.defaultDiscountMaxLiters || '';
+    } else {
+      discEl.value = '';
+      discMaxEl.value = '';
+    }
+    recalcTotal();
+  }
+
   function refreshDiscountUI(){
     const hasDisc = (Number(discEl.value)||0) > 0;
     document.getElementById('f-discount-max-field').hidden = !hasDisc;
@@ -1565,6 +1590,7 @@
   discMaxEl.addEventListener('input', recalcTotal);
   totalEl.addEventListener('input', validateForm);
   document.getElementById('f-station').addEventListener('input', validateForm);
+  document.getElementById('f-station').addEventListener('input', applyStationDiscount);
 
   function validateForm(){
     const station = document.getElementById('f-station').value.trim();
@@ -1644,6 +1670,7 @@
     const defGrade = settings.defaultGrade || 'Regular';
     const defDiscount = settings.defaultDiscountPerLiter || '';
     const defDiscountMax = settings.defaultDiscountMaxLiters || '';
+    const defDiscountStation = settings.defaultDiscountStation || '';
     const thm = settings.theme || 'auto';
     const currencyList = [
       ['USD','US Dollar'],['CAD','Canadian Dollar'],['EUR','Euro'],['GBP','British Pound'],
@@ -1673,6 +1700,10 @@
         <div class="field">
           <label>Default Grade</label>
           <select id="s-default-grade">${Object.keys(GRADE_META).map(g=>`<option value="${g}" ${g===defGrade?'selected':''}>${g}</option>`).join('')}</select>
+        </div>
+        <div class="field">
+          <label>Discount Station</label>
+          <input type="text" id="s-default-discount-station" placeholder="any station" value="${escapeHtml(defDiscountStation)}" autocomplete="off" autocapitalize="words">
         </div>
         <div class="field">
           <label>Default Discount / L</label>
@@ -1714,6 +1745,9 @@
     });
     document.getElementById('s-default-grade').addEventListener('change', (e)=>{
       settings.defaultGrade = e.target.value || 'Regular'; saveSettings(); showToast('Default grade updated');
+    });
+    document.getElementById('s-default-discount-station').addEventListener('change', (e)=>{
+      settings.defaultDiscountStation = e.target.value.trim(); saveSettings();
     });
     document.getElementById('s-default-discount').addEventListener('change', (e)=>{
       const v = Number(e.target.value)||0; settings.defaultDiscountPerLiter = v>0 ? v : null; saveSettings();
