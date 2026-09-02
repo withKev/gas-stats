@@ -1540,14 +1540,10 @@
   // otherwise. With no station set, the default discount is not station-gated
   // (it pre-fills on open instead — see openAdd).
   function applyStationDiscount(){
-    const dStation = (settings.defaultDiscountStation||'').trim().toLowerCase();
-    if(!dStation || !(Number(settings.defaultDiscountPerLiter)||0)) return;
+    const stations = (settings.defaultDiscountStation||'').split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
+    if(!stations.length || !(Number(settings.defaultDiscountPerLiter)||0)) return;
     const cur = document.getElementById('f-station').value.trim().toLowerCase();
-    if(cur === dStation){
-      discEl.value = settings.defaultDiscountPerLiter;
-    } else {
-      discEl.value = '';
-    }
+    discEl.value = stations.includes(cur) ? settings.defaultDiscountPerLiter : '';
     recalcTotal();
   }
 
@@ -1682,7 +1678,7 @@
       <div class="section-header">Discounts</div>
       <div class="field-group">
         <div class="field">
-          <label>Discount Station</label>
+          <label>Discount Stations</label>
           <input type="text" id="s-default-discount-station" placeholder="any station" value="${escapeHtml(defDiscountStation)}" autocomplete="off" autocapitalize="words">
         </div>
         <div class="field">
@@ -1690,7 +1686,7 @@
           <input type="number" inputmode="decimal" id="s-default-discount" placeholder="e.g. 0.03" value="${defDiscount}">
         </div>
       </div>
-      <div class="hint">Set the per-litre discount you get regularly (e.g. a credit-card discount). When you name a Discount Station, it fills in automatically only at that station; leave it blank to apply everywhere. You can still add or change a discount, plus a one-off Additional Discount, on any fill-up.</div>
+      <div class="hint">Set the per-litre discount you get regularly (e.g. a credit-card discount). Name one or more Discount Stations (separate several with commas) and it fills in automatically only at those stations; leave blank to apply everywhere. You can still add or change a discount, plus a one-off Additional Discount, on any fill-up.</div>
       <div class="section-header">Backup</div>
       <div class="field-group">
         <div class="field tappable" style="cursor:pointer;" id="export-row"><label style="width:auto;flex:1;">Export backup (JSON)</label><span style="color:var(--text-tertiary);">${icon('up',20)}</span></div>
